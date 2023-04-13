@@ -81,6 +81,9 @@ impl Context {
     pub fn int128_type(&self) -> Type {
         unsafe { Type(LLVMInt128TypeInContext(self.0)) }
     }
+    pub fn named_struct_type(&self, name: &str) -> Type {
+        unsafe { Type(LLVMStructCreateNamed(self.0, name.cstr())) }
+    }
 }
 
 pub struct Module(LLVMModuleRef);

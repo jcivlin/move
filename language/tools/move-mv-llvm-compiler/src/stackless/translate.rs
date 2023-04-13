@@ -175,11 +175,12 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                     }
                 };
 
-                let ll_parm_tys = fn_env
-                    .get_parameter_types()
-                    .iter()
-                    .map(|mty| self.llvm_type(mty))
-                    .collect::<Vec<_>>();
+                // stepping thru each type for better debugging
+                let par_types_ = fn_env.get_parameter_types();
+                let it_ = par_types_.iter();
+                let map_ = it_.map(|mty| self.llvm_type(mty));
+                let collect_ = map_.collect::<Vec<_>>();
+                let ll_parm_tys = collect_;
 
                 llvm::FunctionType::new(ll_rty, &ll_parm_tys)
             };
@@ -195,18 +196,23 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
     fn llvm_type(&self, mty: &mty::Type) -> llvm::Type {
         use mty::{PrimitiveType, Type};
 
+        dbg!(&mty);
+
         match mty {
             Type::Primitive(PrimitiveType::Bool) => self.llvm_cx.int1_type(),
             Type::Primitive(PrimitiveType::U8) => self.llvm_cx.int8_type(),
             Type::Primitive(PrimitiveType::U32) => self.llvm_cx.int32_type(),
             Type::Primitive(PrimitiveType::U64) => self.llvm_cx.int64_type(),
             Type::Primitive(PrimitiveType::U128) => self.llvm_cx.int128_type(),
+            Type::Primitive(PrimitiveType::Address) => self.llvm_cx.named_struct_type("Address_"),
+            Type::Primitive(PrimitiveType::Signer) => self.llvm_cx.named_struct_type("Signer_"),
             Type::Reference(_, referent_mty) => {
                 let referent_llty = self.llvm_type(referent_mty);
                 let llty = referent_llty.ptr_type();
                 llty
             }
             _ => {
+                dbg!(&mty);
                 todo!("{mty:?}")
             }
         }
