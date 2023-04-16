@@ -248,7 +248,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             Type::Primitive(PrimitiveType::U128) => 128,
             Type::Primitive(PrimitiveType::U256) => 256,
             _ => {
-                dbg!(mty);
                 todo!("{mty:?}")
             }
         }
