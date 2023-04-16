@@ -196,7 +196,8 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
     fn llvm_type(&self, mty: &mty::Type) -> llvm::Type {
         use mty::{PrimitiveType, Type};
 
-        dbg!(&mty);
+        // dbg!(&mty);
+        // dbg!(self.llvm_cx);
 
         match mty {
             Type::Primitive(PrimitiveType::Bool) => self.llvm_cx.int1_type(),
@@ -204,15 +205,34 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             Type::Primitive(PrimitiveType::U32) => self.llvm_cx.int32_type(),
             Type::Primitive(PrimitiveType::U64) => self.llvm_cx.int64_type(),
             Type::Primitive(PrimitiveType::U128) => self.llvm_cx.int128_type(),
-            Type::Primitive(PrimitiveType::Address) => self.llvm_cx.named_struct_type("Address_"),
-            Type::Primitive(PrimitiveType::Signer) => self.llvm_cx.named_struct_type("Signer_"),
+            Type::Primitive(PrimitiveType::Address) => {
+                print!("Address_");
+                self.llvm_cx.named_struct_type("Address_")
+            }
+            Type::Primitive(PrimitiveType::Signer) => {
+                print!("Signer_");
+                self.llvm_cx.named_struct_type("Signer_")
+            }
+            Type::Struct(mod_id, struct_id, args) => {
+                let sym_pool = self.env.env.symbol_pool();
+                let struct_name = &struct_id.symbol().display(sym_pool).to_string();
+
+                dbg!(mod_id);
+                dbg!(struct_id);
+                dbg!(struct_name);
+                dbg!(args);
+
+                let struct_env = self.env.get_struct(*struct_id);
+                dbg!(struct_env);
+                self.llvm_cx.named_struct_type(struct_name)
+            }
             Type::Reference(_, referent_mty) => {
                 let referent_llty = self.llvm_type(referent_mty);
                 let llty = referent_llty.ptr_type();
                 llty
             }
             _ => {
-                dbg!(&mty);
+                print!("Whatever");
                 todo!("{mty:?}")
             }
         }
@@ -229,6 +249,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             Type::Primitive(PrimitiveType::U128) => 128,
             Type::Primitive(PrimitiveType::U256) => 256,
             _ => {
+                dbg!(mty);
                 todo!("{mty:?}")
             }
         }
