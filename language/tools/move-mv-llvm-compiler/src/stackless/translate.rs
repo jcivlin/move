@@ -176,11 +176,10 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                 };
 
                 // stepping thru each type for better debugging
-                let par_types_ = fn_env.get_parameter_types();
-                let it_ = par_types_.iter();
-                let map_ = it_.map(|mty| self.llvm_type(mty));
-                let collect_ = map_.collect::<Vec<_>>();
-                let ll_parm_tys = collect_;
+                let _par_types = fn_env.get_parameter_types();
+                let _it = _par_types.iter();
+                let _map = _it.map(|mty| self.llvm_type(mty));
+                let ll_parm_tys = _map.collect::<Vec<_>>();
 
                 llvm::FunctionType::new(ll_rty, &ll_parm_tys)
             };
