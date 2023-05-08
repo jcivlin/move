@@ -449,6 +449,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             Type::Primitive(PrimitiveType::U64) => self.llvm_cx.int64_type(),
             Type::Primitive(PrimitiveType::U128) => self.llvm_cx.int128_type(),
             Type::Primitive(PrimitiveType::U256) => self.llvm_cx.int256_type(),
+            /*
             Type::Struct(_mod_id, struct_id, _args) => {
                 let struct_env = &self.env.get_struct(*struct_id);
                 let struct_name = &struct_env.llvm_full_name();
@@ -465,6 +466,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                     }
                 }
             }
+            */
             Type::Reference(_, referent_mty) => {
                 let referent_llty = self.llvm_type(referent_mty);
                 referent_llty.ptr_type()
@@ -475,7 +477,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                 self.llvm_cx.int8_type()
             }
             Type::Struct(declaring_module_id, struct_id, _) => {
-                let global_env = &self.env.env;
+                let global_env = self.env.env;
                 let struct_env = global_env
                     .get_module(*declaring_module_id)
                     .into_struct(*struct_id);
@@ -1172,6 +1174,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             Operation::Function(mod_id, fun_id, types) => {
                 self.translate_fun_call(*mod_id, *fun_id, types, dst, src);
             }
+            /*
             Operation::Pack(_mod_id, struct_id, _types) => {
                 // This is coming after `MoveBytecode::Pack(idx) => {`
                 //      in `stackless_bytecode_generator.rs`
@@ -1258,6 +1261,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 //     .load_deref_store(dty, dst_llval, dst_llval);
                 self.llvm_builder.ref_store(self.locals[src[0]].llval, dst_llval);
             }
+            */
             Operation::BorrowLoc => {
                 assert_eq!(src.len(), 1);
                 assert_eq!(dst.len(), 1);
