@@ -375,11 +375,11 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                     }
                 };
 
-                // stepping thru each type for better debugging
-                let par_types = fn_env.get_parameter_types();
-                let it = par_types.iter();
-                let map = it.map(|mty| self.llvm_type(mty));
-                let ll_parm_tys = map.collect::<Vec<_>>();
+                let ll_parm_tys = fn_env
+                    .get_parameter_types()
+                    .iter()
+                    .map(|mty| self.llvm_type(mty))
+                    .collect::<Vec<_>>();
 
                 llvm::FunctionType::new(ll_rty, &ll_parm_tys)
             };
@@ -441,11 +441,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
     fn llvm_type(&self, mty: &mty::Type) -> llvm::Type {
         use mty::{PrimitiveType, Type};
 
-        // Note: to print src byte code:
-        // let code = &self.env.get_verified_module().function_defs[0].code;
-        // dbg!(code);
-
-        let _here = &self;
         match mty {
             Type::Primitive(PrimitiveType::Bool) => self.llvm_cx.int1_type(),
             Type::Primitive(PrimitiveType::U8) => self.llvm_cx.int8_type(),
@@ -492,7 +487,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                 }
             }
             _ => {
-                print!("Whatever");
                 todo!("{mty:?}")
             }
         }
