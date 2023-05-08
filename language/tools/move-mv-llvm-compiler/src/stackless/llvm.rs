@@ -102,8 +102,6 @@ impl Context {
         unsafe { Type(LLVMIntTypeInContext(self.0, 256)) }
     }
 
-    // pub fn named_struct_type(&self, name: &str) -> Type {
-    //     unsafe { Type(LLVMStructCreateNamed(self.0, name.cstr())) }
     pub fn named_struct_type(&self, name: &str) -> Option<StructType> {
         unsafe {
             let tyref = LLVMGetTypeByName2(self.0, name.cstr());

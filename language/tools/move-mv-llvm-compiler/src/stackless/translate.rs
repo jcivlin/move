@@ -376,10 +376,10 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                 };
 
                 // stepping thru each type for better debugging
-                let _par_types = fn_env.get_parameter_types();
-                let _it = _par_types.iter();
-                let _map = _it.map(|mty| self.llvm_type(mty));
-                let ll_parm_tys = _map.collect::<Vec<_>>();
+                let par_types = fn_env.get_parameter_types();
+                let it = par_types.iter();
+                let map = it.map(|mty| self.llvm_type(mty));
+                let ll_parm_tys = map.collect::<Vec<_>>();
 
                 llvm::FunctionType::new(ll_rty, &ll_parm_tys)
             };
@@ -441,9 +441,11 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
     fn llvm_type(&self, mty: &mty::Type) -> llvm::Type {
         use mty::{PrimitiveType, Type};
 
-        // dbg!(&mty);
-        // dbg!(self.llvm_cx);
+        // Note: to print src byte code:
+        // let code = &self.env.get_verified_module().function_defs[0].code;
+        // dbg!(code);
 
+        let _here = &self;
         match mty {
             Type::Primitive(PrimitiveType::Bool) => self.llvm_cx.int1_type(),
             Type::Primitive(PrimitiveType::U8) => self.llvm_cx.int8_type(),
@@ -452,26 +454,21 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             Type::Primitive(PrimitiveType::U64) => self.llvm_cx.int64_type(),
             Type::Primitive(PrimitiveType::U128) => self.llvm_cx.int128_type(),
             Type::Primitive(PrimitiveType::U256) => self.llvm_cx.int256_type(),
-            Type::Primitive(PrimitiveType::Address) => {
-                print!("Address_");
-                self.llvm_cx.named_struct_type("Address_")
-            }
-            Type::Primitive(PrimitiveType::Signer) => {
-                print!("Signer_");
-                self.llvm_cx.named_struct_type("Signer_")
-            }
-            Type::Struct(mod_id, struct_id, args) => {
-                let sym_pool = self.env.env.symbol_pool();
-                let struct_name = &struct_id.symbol().display(sym_pool).to_string();
-
-                dbg!(mod_id);
-                dbg!(struct_id);
-                dbg!(struct_name);
-                dbg!(args);
-
-                let struct_env = self.env.get_struct(*struct_id);
-                dbg!(struct_env);
-                self.llvm_cx.named_struct_type(struct_name)
+            Type::Struct(_mod_id, struct_id, _args) => {
+                let struct_env = &self.env.get_struct(*struct_id);
+                let struct_name = &struct_env.llvm_full_name();
+                match self.llvm_cx.named_struct_type(struct_name) {
+                    // Note: do not create opaque objects, they gave no sizes and cannot Alloc!
+                    // None => self.llvm_cx.create_opaque_named_struct(struct_name).as_any_type(),
+                    None => {
+                        println!("No Struct found, using llvm_tydesc_type with no name");
+                        self.llvm_tydesc_type().as_any_type()
+                    },
+                    Some(t) => {
+                        println!("Reusing type of struct {}", struct_name);
+                        t.as_any_type()
+                    }
+                }
             }
             Type::Reference(_, referent_mty) => {
                 let referent_llty = self.llvm_type(referent_mty);
@@ -584,6 +581,9 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
     }
 
     fn translate(mut self, dot_info: &'up String) {
+        let fun_idx: usize = self.env.get_def_idx().0.into();
+        let code = &self.env.module_env.get_verified_module().function_defs[fun_idx].code;
+        dbg!(code);
         let fn_data = StacklessBytecodeGenerator::new(&self.env).generate_function();
 
         // Write the control flow graph to a .dot file for viewing.
@@ -628,11 +628,62 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             self.llvm_builder.position_at_end(entry_block);
         }
 
+        dbg!(&fn_data.local_types);
         // Declare all the locals as allocas
         {
-            for (i, mty) in fn_data.local_types.iter().enumerate() {
+            // the key = symbol.inner = offset in the stack of named variables
+            let mut named_vars = std::collections::HashMap::new();
+
+            let func_env = &self.env;
+            let mod_env = &func_env.module_env;
+            let symbol_pool = func_env.symbol_pool();
+            dbg!(symbol_pool);
+
+            let bcode: &Vec<sbc::Bytecode> = &fn_data.code;
+            for ii in 0..bcode.len() {
+                println!("stackless bc {}:", ii);
+                let bc = &bcode[ii];
+                dbg!(&bc);
+                match bc {
+                    sbc::Bytecode::Call(_, dst, sbc::Operation::Pack(_, struct_id, _), _src, _) => {
+                        assert!(dst.len() == 1, "Must be only one destination");
+                        let sym = struct_id.symbol();
+                        let sym_idx = dst[0];  // Note, it should not be sym.inner();
+                        // dbg!(sym_idx);
+                        named_vars.insert(sym_idx, sym);
+                        let struct_env = mod_env.find_struct(sym).unwrap();
+
+                        // let struct_name = struct_env.get_full_name_str();
+                        // dbg!(struct_name);
+
+                        for field in struct_env.get_fields() {
+                            let sym = field.get_name();
+                            let name = sym.display(symbol_pool).to_string();
+                            let offset = field.get_offset();
+                            named_vars.insert(offset, sym);
+                            println!("field {} offset {}", name, offset);
+                        }
+                    }
+                    // sbc::Bytecode::Load(_, op, _) => {
+                    //     // do somthing, but you need to find/add a Symbol to support the FE names
+                    // }
+                    _ => {}
+                }
+            }
+            dbg!(&named_vars);
+            for (ii, mty) in fn_data.local_types.iter().enumerate() {
+                dbg!(ii);
+
                 let llty = self.llvm_type(mty);
-                let name = format!("local_{}", i);
+                let func_env = &self.env;
+                let module_env = &func_env.module_env;
+                let mod_id = module_env.get_id().to_usize();
+                let function = func_env.get_id().symbol().display(symbol_pool).to_string();
+                let mut name = format!("local_mod_{}__{}_{}", mod_id, function, ii);
+                if named_vars.contains_key(&ii) {
+                    name = named_vars[&ii].display(symbol_pool).to_string();
+                    dbg!(&name);
+                }
                 let llval = self.llvm_builder.build_alloca(llty, &name);
                 self.locals.push(Local {
                     mty: mty.clone(), // fixme bad clone
@@ -640,6 +691,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     llval,
                 });
             }
+            dbg!(symbol_pool);
         }
 
         // Store params into locals
@@ -1125,6 +1177,92 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         match op {
             Operation::Function(mod_id, fun_id, types) => {
                 self.translate_fun_call(*mod_id, *fun_id, types, dst, src);
+            }
+            Operation::Pack(_mod_id, struct_id, _types) => {
+                // This is coming after `MoveBytecode::Pack(idx) => {`
+                //      in `stackless_bytecode_generator.rs`
+                /*
+                        Call(
+                            AttrId(
+                                2,
+                            ),
+                            [   // dst for Call
+                                4,
+                            ],
+                            Pack(
+                                ModuleId(
+                                    0,
+                                ),
+                                StructId(
+                                    Symbol(
+                                        2,  // = struct_id, it is index in
+                                        // SymbolPool {inner: RefCell { value: InnerPool { strings: [...
+                                        // see `struct_ty_name` below
+
+                                    ),
+                                ),
+                                [],
+                            ),
+                            [   // src for Call
+                                2,  // struct field, index in stack
+                                3,  // struct field, index in stack
+                            ],
+                            None,
+                        ),
+                 */
+                let module_env = &self.env.module_env;
+                let struct_env = &module_env.get_struct(*struct_id);
+                let struct_name_with_address = &struct_env.llvm_full_name_with_address();
+
+                let dst_idx = dst[0];
+                let dst_mty = &self.locals[dst_idx].mty;
+                dbg!(dst_idx);
+                dbg!(dst_mty); // assert!(dst_mty.is_number());
+                // let dst_width = self.get_bitwidth(dst_mty);
+                let dst_reg = self.load_reg(dst_idx, "pack");
+                let dst_llval = self.locals[dst_idx].llval;
+                dbg!(dst_reg);
+                // dbg!(dst_llval);
+                // let di = dst[0];
+                // let dty = self.locals[di].llty;
+
+                // self.llvm_builder.build_store(dst_reg, dst_llval);
+                // self.llvm_builder.ref_store(src_llval, dst_llval);
+
+                for (ii, si) in src.iter().enumerate() {
+                    let s_ty = self.locals[*si].llty;
+                    let s_val = self.locals[*si].llval;
+                    //
+                    let s_mty = &self.locals[*si].mty;
+                    dbg!(s_mty);
+                    s_ty.dump();
+                    s_val.llvm_type().dump();
+                    //
+                    // let field = &struct_env.llvm_field_of_index(ii, true)[0];
+                    let field = &struct_env.get_field_by_offset(ii);
+                    let field_type = field.get_type();
+                    dbg!(&field_type);
+                    s_ty.dump();
+                    assert!(s_mty == &field_type);
+                    if s_mty.is_bool() || s_mty.is_number() {}
+
+                    let field_offset = field.get_offset();
+                    let field_name = &field.get_identifier().unwrap().to_string();
+                    println!("field name {}: field_offset {} ", field_name, field_offset);
+                    assert!(field_offset == ii, "field_offset {} must equal {}", field_offset, ii);
+                    // Name will look like: "0x22__mod1__Struct_A__0__a1_8"
+                    let si_name = &format!("{}__{}__{}", struct_name_with_address, ii, field_name);
+                    dbg!(si_name);
+
+                    self.llvm_builder.build_load(s_ty, s_val, si_name);
+                }
+                // let struct_env = &module_env.get_struct(*struct_id);
+                // let struct_name_with_address = &struct_env.llvm_full_name_with_address();
+                // self.llvm_builder.build_load(src_llval, struct_name_with_address);
+
+                // self.llvm_builder
+                //     .load_deref_store(dty, dst_llval, dst_llval);
+                self.llvm_builder.ref_store(self.locals[src[0]].llval, dst_llval);
             }
             Operation::BorrowLoc => {
                 assert_eq!(src.len(), 1);
