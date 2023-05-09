@@ -449,24 +449,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             Type::Primitive(PrimitiveType::U64) => self.llvm_cx.int64_type(),
             Type::Primitive(PrimitiveType::U128) => self.llvm_cx.int128_type(),
             Type::Primitive(PrimitiveType::U256) => self.llvm_cx.int256_type(),
-            /*
-            Type::Struct(_mod_id, struct_id, _args) => {
-                let struct_env = &self.env.get_struct(*struct_id);
-                let struct_name = &struct_env.llvm_full_name();
-                match self.llvm_cx.named_struct_type(struct_name) {
-                    // Note: do not create opaque objects, they gave no sizes and cannot Alloc!
-                    // None => self.llvm_cx.create_opaque_named_struct(struct_name).as_any_type(),
-                    None => {
-                        println!("No Struct found, using llvm_tydesc_type with no name");
-                        self.llvm_tydesc_type().as_any_type()
-                    },
-                    Some(t) => {
-                        println!("Reusing type of struct {}", struct_name);
-                        t.as_any_type()
-                    }
-                }
-            }
-            */
             Type::Reference(_, referent_mty) => {
                 let referent_llty = self.llvm_type(referent_mty);
                 referent_llty.ptr_type()
@@ -476,11 +458,9 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                 // but might end up broken in the future.
                 self.llvm_cx.int8_type()
             }
-            Type::Struct(declaring_module_id, struct_id, _) => {
-                let global_env = self.env.env;
-                let struct_env = global_env
-                    .get_module(*declaring_module_id)
-                    .into_struct(*struct_id);
+            Type::Struct(_, struct_id, _) => {
+                let struct_env = &self.env.get_struct(*struct_id);
+                // let struct_name = &struct_env.llvm_full_name();
                 let struct_name = self.ll_struct_name_from_raw_name(&struct_env);
                 if let Some(stype) = self.llvm_cx.named_struct_type(&struct_name) {
                     stype.as_any_type()
@@ -667,17 +647,17 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 }
             }
             dbg!(&named_vars);
-            for (ii, mty) in fn_data.local_types.iter().enumerate() {
-                dbg!(ii);
+            for (i, mty) in fn_data.local_types.iter().enumerate() {
+                dbg!(i);
 
                 let llty = self.llvm_type(mty);
                 let func_env = &self.env;
                 let module_env = &func_env.module_env;
                 let mod_id = module_env.get_id().to_usize();
                 let function = func_env.get_id().symbol().display(symbol_pool).to_string();
-                let mut name = format!("local_mod_{}__{}_{}", mod_id, function, ii);
-                if named_vars.contains_key(&ii) {
-                    name = named_vars[&ii].display(symbol_pool).to_string();
+                let mut name = format!("local_mod_{}__{}_{}", mod_id, function, i);
+                if named_vars.contains_key(&i) {
+                    name = named_vars[&i].display(symbol_pool).to_string();
                     dbg!(&name);
                 }
                 let llval = self.llvm_builder.build_alloca(llty, &name);
@@ -1210,6 +1190,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let module_env = &self.env.module_env;
                 let struct_env = &module_env.get_struct(*struct_id);
                 let struct_name_with_address = &struct_env.llvm_full_name_with_address();
+                let struct_name = self.ll_struct_name_from_raw_name(&struct_env);
 
                 let dst_idx = dst[0];
                 let dst_mty = &self.locals[dst_idx].mty;
