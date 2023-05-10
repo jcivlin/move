@@ -21,9 +21,6 @@ impl Symbol {
     pub fn display<'a>(&'a self, pool: &'a SymbolPool) -> SymbolDisplay<'a> {
         SymbolDisplay { sym: self, pool }
     }
-    pub fn inner(&self) -> usize {
-        self.0
-    }
 }
 
 /// A helper to support symbols in formatting.

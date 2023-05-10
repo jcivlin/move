@@ -82,10 +82,3 @@ pub impl FunIdExt for mm::FunId {
         }
     }
 }
-
-#[extension_trait]
-pub impl SymbolExt for move_model::symbol::Symbol {
-    fn inner(&self) -> usize {
-        self.inner()
-    }
-}

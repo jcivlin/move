@@ -604,7 +604,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
 
         // Declare all the locals as allocas
         {
-            // the key = symbol.inner = offset in the stack of named variables
+            // the key = symbol.0 = offset in the stack of named variables
             let mut named_vars = std::collections::HashMap::new();
 
             let func_env = &self.env;
