@@ -616,18 +616,14 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     if let Some(s) = mty.get_struct(mod_env.env) {
                         let struct_env = s.0;
                         let struct_symbol = struct_env.get_id().symbol();
-                        // let struct_name = struct_env.llvm_full_name();
                         let struct_pos = i;
                         named_vars.insert(struct_pos, struct_symbol);
-                        // println!("struct name {} inserted at pos {}", struct_name, struct_pos);
                         let fields_cnt = struct_env.get_fields().count();
                         for field in struct_env.get_fields() {
                             let f_sym = field.get_name();
-                            // let f_name = f_sym.display(symbol_pool).to_string();
                             let f_offset = field.get_offset();
                             let f_idx = (struct_pos - fields_cnt) + f_offset;
                             named_vars.insert(f_idx, f_sym);
-                            // println!("field name {} inserted at idx {}", f_name, f_idx);
                         }
                     }
                 }
