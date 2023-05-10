@@ -633,7 +633,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 }
             }
             for (i, mty) in fn_data.local_types.iter().enumerate() {
-
                 let llty = self.llvm_type(mty);
                 let func_env = &self.env;
                 let module_env = &func_env.module_env;
@@ -1158,7 +1157,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let struct_name = &struct_env.llvm_full_name();
                 let stype = self
                     .llvm_cx
-                    .named_struct_type(&struct_name)
+                    .named_struct_type(struct_name)
                     .expect("no struct type");
                 self.llvm_builder
                     .field_ref_store(src_llval, dst_llval, stype, *offset);
@@ -1174,7 +1173,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let struct_name = &struct_env.llvm_full_name();
                 let stype = self
                     .llvm_cx
-                    .named_struct_type(&struct_name)
+                    .named_struct_type(struct_name)
                     .expect("no struct type");
                 let fvals = src
                     .iter()
@@ -1196,7 +1195,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let struct_name = &struct_env.llvm_full_name();
                 let stype = self
                     .llvm_cx
-                    .named_struct_type(&struct_name)
+                    .named_struct_type(struct_name)
                     .expect("no struct type");
                 let fdstvals = dst
                     .iter()

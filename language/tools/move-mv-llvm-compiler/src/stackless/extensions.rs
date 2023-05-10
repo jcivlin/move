@@ -41,14 +41,17 @@ pub impl<'a> StructEnvExt for mm::StructEnv<'a> {
         format!("struct.{}", self.get_full_name_str().replace(':', "_"))
     }
     fn llvm_full_name_with_address(&self) -> String {
-        format!("struct.{}", self.get_full_name_with_address().replace(':', "_"))
+        format!(
+            "struct.{}",
+            self.get_full_name_with_address().replace(':', "_")
+        )
     }
     fn llvm_dump(&self) {
         for (ii, field_env) in self.get_fields().enumerate() {
             let name: String = {
                 match field_env.get_identifier() {
                     Some(t) => t.into_string(),
-                    None => "noname".to_string()
+                    None => "noname".to_string(),
                 }
             };
             let offset = field_env.get_offset();
@@ -65,7 +68,7 @@ pub impl<'a> FieldEnvExt for mm::FieldEnv<'a> {
         let name: String = {
             match self.get_identifier() {
                 Some(t) => t.into_string(),
-                None => "no_name".to_string()
+                None => "no_name".to_string(),
             }
         };
         let offset = self.get_offset();
