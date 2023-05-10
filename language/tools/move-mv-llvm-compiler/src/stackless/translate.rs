@@ -234,7 +234,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             if !s_env.get_type_parameters().is_empty() {
                 todo!("generic structs not yet implemented");
             }
-            // let ll_name = self.ll_struct_name_from_raw_name(s_env);
             let ll_name = s_env.llvm_full_name();
             self.llvm_cx.create_opaque_named_struct(&ll_name);
         }
@@ -265,7 +264,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             if !s_env.get_type_parameters().is_empty() {
                 todo!("generic structs not yet implemented");
             }
-            // let ll_name = self.ll_struct_name_from_raw_name(s_env);
             let ll_name = s_env.llvm_full_name();
             let ll_sty = self
                 .llvm_cx
@@ -285,15 +283,9 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         }
     }
 
-    // fn ll_struct_name_from_raw_name(&self, s_env: &mm::StructEnv) -> String {
-    //     let raw_name = s_env.get_full_name_str();
-    //     format!("struct.{}", raw_name.replace(':', "_"))
-    // }
-
     #[allow(dead_code)]
     fn dump_all_structs(&self, all_structs: &Vec<mm::StructEnv>, is_post_translation: bool) {
         for s_env in all_structs {
-            // let ll_name = self.ll_struct_name_from_raw_name(s_env);
             let ll_name = s_env.llvm_full_name();
             let prepost = if is_post_translation {
                 "Translated"
@@ -463,8 +455,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             }
             Type::Struct(_, struct_id, _) => {
                 let struct_env = &self.env.get_struct(*struct_id);
-                // let struct_name = &struct_env.llvm_full_name();
-                // let struct_name = self.ll_struct_name_from_raw_name(&struct_env);
                 let struct_name = struct_env.llvm_full_name();
                 if let Some(stype) = self.llvm_cx.named_struct_type(&struct_name) {
                     stype.as_any_type()
@@ -507,9 +497,6 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             llvm_builder: &self.llvm_builder,
             llvm_type: Box::new(|ty| self.llvm_type(ty)),
             get_bitwidth: Box::new(|ty| self.get_bitwidth(ty)),
-            // ll_struct_name_from_raw_name: Box::new(|s_env| {
-            //     self.ll_struct_name_from_raw_name(s_env)
-            // }),
             fn_decls: &self.fn_decls,
             label_blocks: BTreeMap::new(),
             locals,
@@ -530,7 +517,6 @@ struct FunctionContext<'mm, 'up> {
     /// the effort.
     llvm_type: Box<dyn (Fn(&mty::Type) -> llvm::Type) + 'up>,
     get_bitwidth: Box<dyn (Fn(&mty::Type) -> u64) + 'up>,
-    // ll_struct_name_from_raw_name: Box<dyn (Fn(&mm::StructEnv) -> String) + 'up>,
     fn_decls: &'up BTreeMap<mm::QualifiedId<mm::FunId>, llvm::Function>,
     label_blocks: BTreeMap<sbc::Label, llvm::BasicBlock>,
     /// Corresponds to FunctionData:local_types
@@ -605,55 +591,56 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             self.llvm_builder.position_at_end(entry_block);
         }
 
+        // If for debugging you need bytecode or local types:
+        /*
+        let stackless_bytecode: &Vec<sbc::Bytecode> = &fn_data.code;
+        dbg!(stackless_bytecode);
         let fun_idx: usize = self.env.get_def_idx().0.into();
-        let code = &self.env.module_env.get_verified_module().function_defs[fun_idx].code;
-        dbg!(code);
+        let mv_bytecode = &self.env.module_env.get_verified_module().function_defs[fun_idx].code;
+        dbg!(mv_bytecode);
+
         dbg!(&fn_data.local_types);
+        */
+
         // Declare all the locals as allocas
         {
             // the key = symbol.inner = offset in the stack of named variables
             let mut named_vars = std::collections::HashMap::new();
-            // let mut struct_map = std::collections::HashMap::new();
 
             let func_env = &self.env;
             let mod_env = &func_env.module_env;
             let symbol_pool = func_env.symbol_pool();
-            dbg!(symbol_pool);
+            // dbg!(symbol_pool);
 
-            // let bcode: &Vec<sbc::Bytecode> = &fn_data.code;
-            // dbg!(bcode);
             for (i, mty) in fn_data.local_types.iter().enumerate() {
                 if mty.is_struct() {
-                    dbg!(&mty);
+                    // dbg!(&mty);
                     if let Some(s) = mty.get_struct(mod_env.env) {
                         let struct_env = s.0;
                         let struct_symbol = struct_env.get_id().symbol();
-                        let struct_name = struct_env.llvm_full_name();
+                        // let struct_name = struct_env.llvm_full_name();
                         let struct_pos = i;
                         named_vars.insert(struct_pos, struct_symbol);
-                        println!("struct name {} inserted at pos {}", struct_name, struct_pos);
+                        // println!("struct name {} inserted at pos {}", struct_name, struct_pos);
                         let fields_cnt = struct_env.get_fields().count();
                         for field in struct_env.get_fields() {
                             let f_sym = field.get_name();
-                            let f_name = f_sym.display(symbol_pool).to_string();
+                            // let f_name = f_sym.display(symbol_pool).to_string();
                             let f_offset = field.get_offset();
                             let f_idx = (struct_pos - fields_cnt) + f_offset;
-                            // dbg!(struct_pos);
-                            // dbg!(f_offset);
-                            // dbg!(f_idx);
                             named_vars.insert(f_idx, f_sym);
-                            println!("field name {} inserted at idx {}", f_name, f_idx);
+                            // println!("field name {} inserted at idx {}", f_name, f_idx);
                         }
                     }
                 }
             }
             for (i, mty) in fn_data.local_types.iter().enumerate() {
-                dbg!(i);
+                // dbg!(i);
 
                 let llty = self.llvm_type(mty);
-                if mty.is_struct() {
-                    dbg!(&mty);
-                }
+                // if mty.is_struct() {
+                //     dbg!(&mty);
+                // }
                 let func_env = &self.env;
                 let module_env = &func_env.module_env;
                 let mod_id = module_env.get_id().to_usize();
@@ -661,7 +648,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let mut name = format!("local_mod_{}__{}_{}", mod_id, function, i);
                 if named_vars.contains_key(&i) {
                     name = named_vars[&i].display(symbol_pool).to_string();
-                    dbg!(&name);
+                    // dbg!(&name);
                 }
                 let llval = self.llvm_builder.build_alloca(llty, &name);
                 self.locals.push(Local {
@@ -670,7 +657,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     llval,
                 });
             }
-            dbg!(symbol_pool);
+            // dbg!(symbol_pool);
         }
 
         // Store params into locals
@@ -1176,7 +1163,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .get_global_env()
                     .get_module(*mod_id)
                     .into_struct(*struct_id);
-                // let struct_name = (self.ll_struct_name_from_raw_name)(&struct_env);
                 let struct_name = &struct_env.llvm_full_name();
                 let stype = self
                     .llvm_cx
@@ -1193,7 +1179,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .into_struct(*struct_id);
                 assert_eq!(dst.len(), 1);
                 assert_eq!(src.len(), struct_env.get_field_count());
-                // let struct_name = (self.ll_struct_name_from_raw_name)(&struct_env);
                 let struct_name = &struct_env.llvm_full_name();
                 let stype = self
                     .llvm_cx
@@ -1216,7 +1201,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .into_struct(*struct_id);
                 assert_eq!(src.len(), 1);
                 assert_eq!(dst.len(), struct_env.get_field_count());
-                // let struct_name = (self.ll_struct_name_from_raw_name)(&struct_env);
                 let struct_name = &struct_env.llvm_full_name();
                 let stype = self
                     .llvm_cx
