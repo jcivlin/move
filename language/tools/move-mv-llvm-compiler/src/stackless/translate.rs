@@ -610,11 +610,9 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             let func_env = &self.env;
             let mod_env = &func_env.module_env;
             let symbol_pool = func_env.symbol_pool();
-            // dbg!(symbol_pool);
 
             for (i, mty) in fn_data.local_types.iter().enumerate() {
                 if mty.is_struct() {
-                    // dbg!(&mty);
                     if let Some(s) = mty.get_struct(mod_env.env) {
                         let struct_env = s.0;
                         let struct_symbol = struct_env.get_id().symbol();
@@ -635,12 +633,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 }
             }
             for (i, mty) in fn_data.local_types.iter().enumerate() {
-                // dbg!(i);
 
                 let llty = self.llvm_type(mty);
-                // if mty.is_struct() {
-                //     dbg!(&mty);
-                // }
                 let func_env = &self.env;
                 let module_env = &func_env.module_env;
                 let mod_id = module_env.get_id().to_usize();
@@ -648,7 +642,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let mut name = format!("local_mod_{}__{}_{}", mod_id, function, i);
                 if named_vars.contains_key(&i) {
                     name = named_vars[&i].display(symbol_pool).to_string();
-                    // dbg!(&name);
                 }
                 let llval = self.llvm_builder.build_alloca(llty, &name);
                 self.locals.push(Local {
@@ -657,7 +650,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     llval,
                 });
             }
-            // dbg!(symbol_pool);
         }
 
         // Store params into locals
