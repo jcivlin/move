@@ -673,8 +673,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             for (i, mty) in fn_data.local_types.iter().enumerate() {
                 let llty = self.llvm_type(mty);
                 let mut name = format!("local_{}", i);
-                if let Some(s) = &named_locals.get(&i) {
-                    name = s.to_string();
+                if let Some(s) = named_locals.get(&i) {
+                    name = format!("local_{}__{}", i, s.to_string());
                 }
                 let llval = self.llvm_builder.build_alloca(llty, &name);
                 self.locals.push(Local {
