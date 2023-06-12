@@ -34,6 +34,7 @@ use crate::{
     cli::Args,
     stackless::{extensions::*, llvm, rttydesc},
 };
+use ::std::fmt::Debug;
 use chrono::Local as ChronoLocal;
 use env_logger::fmt::Color;
 use llvm_sys::prelude::LLVMValueRef;
@@ -241,6 +242,8 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                     .find_struct(m_env.symbol_pool().make(struct_view.name().as_str()))
                     .expect("undefined struct");
                 let qid = struct_env.get_qualified_id();
+                let name = struct_view.name().as_str();
+                debug!(target: "structs", "Collecting struct {}", name);
                 if qid.module_id != m_env.get_id() && !visited.contains(&qid.module_id) {
                     worklist.push_back(qid.module_id);
                     external_sqids.insert(qid);
@@ -361,15 +364,18 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         // As the compiler evolves and the design comes into focus, additional fields may be added
         // or existing fields changed or removed.
         for (s_env, tyvec) in &all_structs {
-            let ll_name = self.ll_struct_name_from_raw_name(s_env, tyvec);
+            let ll_name = &self.ll_struct_name_from_raw_name(s_env, tyvec);
+            debug!(target: "structs", "Processing fields of struct {}", ll_name);
             let ll_sty = self
                 .llvm_cx
-                .named_struct_type(&ll_name)
+                .named_struct_type(ll_name)
                 .expect("no struct type");
 
             // Visit each field in this struct, collecting field types.
             let mut ll_field_tys = Vec::with_capacity(s_env.get_field_count() + 1);
             for fld_env in s_env.get_fields() {
+                let fld_name = fld_env.get_name().display(s_env.symbol_pool()).to_string();
+                debug!(target: "structs", "Field {}, getting type of the field ...", fld_name);
                 let ll_fld_type = self.llvm_type_with_ty_params(&fld_env.get_type(), tyvec);
                 ll_field_tys.push(ll_fld_type);
             }
@@ -549,6 +555,11 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         tyvec: &[mty::Type],
         linkage: llvm::LLVMLinkage,
     ) {
+        debug!(target: "sbc", "Move bytecode for function {:?}", &fn_env.get_name_str());
+        for bc in fn_env.get_bytecode() {
+            debug!(target: "sbc", "bytecode {:?}", bc);
+        }
+
         if fn_env.is_native() {
             self.declare_native_function(fn_env, linkage)
         } else {
@@ -711,6 +722,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                     .get_module(*declaring_module_id)
                     .into_struct(*struct_id);
                 let struct_name = self.ll_struct_name_from_raw_name(&struct_env, tys);
+                debug!(target: "structs", "Type::Struct... found struct {}", struct_name);
                 if let Some(stype) = self.llvm_cx.named_struct_type(&struct_name) {
                     stype.as_any_type()
                 } else {
@@ -787,6 +799,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             label_blocks: BTreeMap::new(),
             locals,
             type_params,
+            mty_to_llty: BTreeMap::new(),
         }
     }
 }
@@ -798,6 +811,7 @@ struct FunctionContext<'mm, 'up> {
     /// Corresponds to FunctionData:local_types
     locals: Vec<Local>,
     type_params: &'mm [mty::Type],
+    mty_to_llty: BTreeMap<move_model::ty::Type, llvm::Type>,
 }
 
 /// A stackless move local variable, translated as an llvm alloca
@@ -900,6 +914,11 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
 
         // Declare all the locals as allocas
         {
+            let func_name = &self.env.get_name_str();
+            debug!(target: "sbc", "Stackless local types for function {:?}", func_name);
+            for loc_ty in &fn_data.local_types {
+                debug!(target: "sbc", "{:?}", loc_ty);
+            }
             for (i, mty) in fn_data.local_types.iter().enumerate() {
                 let llty = self
                     .module_cx
@@ -908,12 +927,21 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 if let Some(s) = named_locals.get(&i) {
                     name = format!("local_{}__{}", i, s);
                 }
+                let llty_print = llty.print_to_str().to_string();
+                debug!(target: "sbc", "{}: llty {}", name, llty_print);
+                if mty.is_struct() {
+                    let (st, _) = mty
+                        .get_struct(self.get_global_env())
+                        .expect("must be struct");
+                    debug!(target: "sbc", "mty as struct {}", st.get_full_name_str());
+                }
                 let llval = self.module_cx.llvm_builder.build_alloca(llty, &name);
                 self.locals.push(Local {
                     mty: mty.instantiate(self.type_params),
                     llty,
                     llval,
                 });
+                self.mty_to_llty.insert(mty.clone(), llty);
             }
         }
 
@@ -1799,11 +1827,23 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .llvm_cx
                     .named_struct_type(&struct_name)
                     .expect("no struct type");
+                debug!(target: "structs", "stype {}", stype.as_any_type().print_to_str().to_string());
                 let fvals = src
                     .iter()
                     .map(|i| (self.locals[*i].llty, self.locals[*i].llval))
                     .collect::<Vec<_>>();
+                for (idx, (ty, _)) in fvals.iter().enumerate() {
+                    let local_src_name = ty.print_to_str().to_string();
+                    debug!(target: "structs", "local_src_ty_{} {}", idx, local_src_name);
+                    for l in self.mty_to_llty.values() {
+                        if l.0 == ty.0 {
+                            debug!(target: "structs", "ty is struct ");
+                        }
+                    }
+                }
                 let dst_idx = dst[0];
+                let local_dst_name = self.locals[dst_idx].llty.print_to_str().to_string();
+                debug!(target: "structs", "local_dst_ty {}", local_dst_name);
                 let ldst = (self.locals[dst_idx].llty, self.locals[dst_idx].llval);
                 builder.insert_fields_and_store(&fvals, ldst, stype);
             }
