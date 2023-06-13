@@ -912,9 +912,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
 
         // Declare all the locals as allocas
         {
-            let func_name = &self.env.get_name_str();
             debug!(target: "sbc", "Stackless local types for function {:?}\n{:#?}",
-                func_name, &fn_data.local_types);
+            &self.env.get_name_str(), &fn_data.local_types);
             for (i, mty) in fn_data.local_types.iter().enumerate() {
                 let llty = self
                     .module_cx
@@ -923,8 +922,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 if let Some(s) = named_locals.get(&i) {
                     name = format!("local_{}__{}", i, s);
                 }
-                let llty_print = llty.print_to_str().to_string();
-                debug!(target: "sbc", "{}: llty {}", name, llty_print);
                 if mty.is_struct() {
                     let (st, _) = mty
                         .get_struct(self.get_global_env())
@@ -1823,25 +1820,24 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .llvm_cx
                     .named_struct_type(&struct_name)
                     .expect("no struct type");
-                debug!(target: "structs", "stype {}", stype.as_any_type().print_to_str().to_string());
                 let fvals = src
                     .iter()
                     .map(|i| (self.locals[*i].llty, self.locals[*i].llval))
                     .collect::<Vec<_>>();
-                for (idx, (ty, _)) in fvals.iter().enumerate() {
-                    let local_src_name = ty.print_to_str().to_string();
-                    debug!(target: "structs", "local_src_ty_{} {}", idx, local_src_name);
-                    let mty = self.llty_to_mty.get(ty).unwrap();
-                    if mty.is_struct() {
-                        debug!(target: "structs", "src type {} is struct", local_src_name);
+                for (idx, src_mty, src_llty) in src
+                    .iter()
+                    .map(|i| (i, &self.locals[*i].mty, &self.locals[*i].llty))
+                    .collect::<Vec<(_, _, _)>>()
+                {
+                    if src_mty.is_struct() {
+                        let local_src_name = src_llty.print_to_str().to_string();
+                        debug!(target: "structs", "field {} src type {} is struct", idx, local_src_name);
                     }
                 }
                 let dst_idx = dst[0];
-                let dst_llty = &self.locals[dst_idx].llty;
-                let mty = self.llty_to_mty.get(dst_llty).unwrap();
-                if mty.is_struct() {
-                    let dst_name = dst_llty.print_to_str().to_string();
-                    debug!(target: "structs", "dts type {} is struct", dst_name);
+                if self.locals[dst_idx].mty.is_struct() {
+                    debug!(target: "structs", "dts type {} is struct",
+                    self.locals[dst_idx].llty.print_to_str().to_string());
                 }
                 let ldst = (self.locals[dst_idx].llty, self.locals[dst_idx].llval);
                 builder.insert_fields_and_store(&fvals, ldst, stype);
