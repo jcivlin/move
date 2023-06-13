@@ -555,10 +555,8 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         tyvec: &[mty::Type],
         linkage: llvm::LLVMLinkage,
     ) {
-        debug!(target: "sbc", "Move bytecode for function {:?}", &fn_env.get_name_str());
-        for bc in fn_env.get_bytecode() {
-            debug!(target: "sbc", "bytecode {:?}", bc);
-        }
+        debug!(target: "mbc", "Move stack bytecode for function {:?}\n{:#?}",
+            &fn_env.get_name_str(),fn_env.get_bytecode());
 
         if fn_env.is_native() {
             self.declare_native_function(fn_env, linkage)
@@ -799,7 +797,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
             label_blocks: BTreeMap::new(),
             locals,
             type_params,
-            mty_to_llty: BTreeMap::new(),
+            llty_to_mty: BTreeMap::new(),
         }
     }
 }
@@ -811,7 +809,7 @@ struct FunctionContext<'mm, 'up> {
     /// Corresponds to FunctionData:local_types
     locals: Vec<Local>,
     type_params: &'mm [mty::Type],
-    mty_to_llty: BTreeMap<move_model::ty::Type, llvm::Type>,
+    llty_to_mty: BTreeMap<Box<llvm::Type>, move_model::ty::Type>,
 }
 
 /// A stackless move local variable, translated as an llvm alloca
@@ -915,10 +913,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         // Declare all the locals as allocas
         {
             let func_name = &self.env.get_name_str();
-            debug!(target: "sbc", "Stackless local types for function {:?}", func_name);
-            for loc_ty in &fn_data.local_types {
-                debug!(target: "sbc", "{:?}", loc_ty);
-            }
+            debug!(target: "sbc", "Stackless local types for function {:?}\n{:#?}",
+                func_name, &fn_data.local_types);
             for (i, mty) in fn_data.local_types.iter().enumerate() {
                 let llty = self
                     .module_cx
@@ -941,7 +937,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     llty,
                     llval,
                 });
-                self.mty_to_llty.insert(mty.clone(), llty);
+                self.llty_to_mty.insert(Box::new(llty), mty.clone());
             }
         }
 
@@ -1835,15 +1831,18 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 for (idx, (ty, _)) in fvals.iter().enumerate() {
                     let local_src_name = ty.print_to_str().to_string();
                     debug!(target: "structs", "local_src_ty_{} {}", idx, local_src_name);
-                    for l in self.mty_to_llty.values() {
-                        if l.0 == ty.0 {
-                            debug!(target: "structs", "ty is struct ");
-                        }
+                    let mty = self.llty_to_mty.get(ty).unwrap();
+                    if mty.is_struct() {
+                        debug!(target: "structs", "src type {} is struct", local_src_name);
                     }
                 }
                 let dst_idx = dst[0];
-                let local_dst_name = self.locals[dst_idx].llty.print_to_str().to_string();
-                debug!(target: "structs", "local_dst_ty {}", local_dst_name);
+                let dst_llty = &self.locals[dst_idx].llty;
+                let mty = self.llty_to_mty.get(dst_llty).unwrap();
+                if mty.is_struct() {
+                    let dst_name = dst_llty.print_to_str().to_string();
+                    debug!(target: "structs", "dts type {} is struct", dst_name);
+                }
                 let ldst = (self.locals[dst_idx].llty, self.locals[dst_idx].llval);
                 builder.insert_fields_and_store(&fvals, ldst, stype);
             }

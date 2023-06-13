@@ -788,7 +788,7 @@ impl Builder {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Type(pub LLVMTypeRef);
 
 impl Type {
