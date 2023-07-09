@@ -35,7 +35,7 @@ pub struct Args {
     #[clap(short = 'p', long = "package")]
     pub move_package_path: Option<String>,
 
-    /// Call Move compiler and pass this option 
+    /// Call Move compiler and pass this option
     #[clap(short = 'c', long = "compile")]
     pub compile: Option<String>,
 
