@@ -135,10 +135,10 @@ fn find_matching_files (
     if std::env::var("PROMOTE_LLVM_IR").is_ok() {
         let string = format!("Copy actual to expected in directory: {}", base_name);
         println!("On demand: {}", string);
-        for actual in entries_actual.to_owned() {
+        for actual in entries_actual.iter().copied() {
             let mut expected = actual.clone();
             expected.set_extension(ext_expected);
-            if fs::copy(&actual, &expected).is_err() {
+            if fs::copy(actual, &expected).is_err() {
                 let err_string = format!("Error while: {}", string);
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, err_string));
             }
@@ -159,7 +159,7 @@ fn find_matching_files (
         return Err(std::io::Error::new(std::io::ErrorKind::Other, err_string));
     }
 
-    for actual in entries_actual.to_owned() {
+    for actual in entries_actual {
         let mut expected = actual.clone();
         expected.set_extension(ext_expected);
         let pair = ActualExpectedPair {
@@ -183,7 +183,7 @@ fn compare_actual_to_expected(
 
     let diff = TextDiff::from_lines(&file_expected, &file_actual);
     for change in diff.iter_all_changes() {
-        if change.value().contains("source_filename") {
+        if change.value().contains("source_filename") {  // depends of running system, ignore this
             continue;
         }
         let sign = match change.tag() {
