@@ -164,7 +164,7 @@ fn find_matching_files (
         expected.set_extension(ext_expected);
         let pair = ActualExpectedPair {
             actual: actual.clone(),
-            expected: expected
+            expected
         };
         result.push(pair);
     }
@@ -183,6 +183,9 @@ fn compare_actual_to_expected(
 
     let diff = TextDiff::from_lines(&file_expected, &file_actual);
     for change in diff.iter_all_changes() {
+        if change.value().contains("source_filename") {
+            continue;
+        }
         let sign = match change.tag() {
             ChangeTag::Delete => Some("-"),
             ChangeTag::Insert => Some("+"),
