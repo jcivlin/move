@@ -1,5 +1,5 @@
 ; ModuleID = '0x100__M'
-source_filename = "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler/tests/move-to-llvm-tests/struct01.move"
+source_filename = "this line depends of the host and will be ignored"
 target datalayout = "e-m:e-p:64:64-i64:64-n32:64-S128"
 target triple = "sbf-solana-solana"
 
