@@ -259,7 +259,10 @@ pub fn run_move_build(harness_paths: &HarnessPaths, test_plan: &TestPlan) -> any
 }
 
 // use std::io::{self, Write};
-pub fn run_move_to_llvm_build(harness_paths: &HarnessPaths, test_plan: &TestPlan) -> anyhow::Result<()> {
+pub fn run_move_to_llvm_build(
+    harness_paths: &HarnessPaths,
+    test_plan: &TestPlan,
+) -> anyhow::Result<()> {
     clean_build_dir(test_plan)?;
     let mut cmd = Command::new(&harness_paths.move_mv_llvm_compiler);
     let test = test_plan.move_file.to_str().expect("utf-8");

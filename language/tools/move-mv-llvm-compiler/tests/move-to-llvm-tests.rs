@@ -81,7 +81,7 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn compare_results(test_plan: &TestPlan)  -> anyhow::Result<()> {
+fn compare_results(test_plan: &TestPlan) -> anyhow::Result<()> {
     let move_file = &test_plan.move_file;
     let build_dir = &test_plan.build_dir;
 
@@ -93,7 +93,7 @@ fn compare_results(test_plan: &TestPlan)  -> anyhow::Result<()> {
         Ok(results) => {
             for result in results {
                 match compare_actual_to_expected(result, test_plan) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(error) => {
                         anyhow::bail!(error);
                     }
@@ -114,22 +114,30 @@ struct ActualExpectedPair {
     expected: PathBuf,
 }
 
-fn find_matching_files (
+fn find_matching_files(
     directory: &Path,
     ext_actual: &str,
     ext_expected: &str,
 ) -> Result<Vec<ActualExpectedPair>, std::io::Error> {
-    let mut result = vec!();
+    let mut result = vec![];
 
-    let entries: Vec<_> = fs::read_dir(directory).expect("Error reading directory")
-            .filter_map(|result| result.ok())
-            .filter(|e| e.path().extension().is_some())
-            .map(|e| e.path())
-            .collect();
+    let entries: Vec<_> = fs::read_dir(directory)
+        .expect("Error reading directory")
+        .filter_map(|result| result.ok())
+        .filter(|e| e.path().extension().is_some())
+        .map(|e| e.path())
+        .collect();
 
-    let entries_actual: Vec<_> = entries.iter().filter(|p|
-                p.extension().expect("Must be extension").to_str().unwrap().eq(ext_actual))
-                .collect();
+    let entries_actual: Vec<_> = entries
+        .iter()
+        .filter(|p| {
+            p.extension()
+                .expect("Must be extension")
+                .to_str()
+                .unwrap()
+                .eq(ext_actual)
+        })
+        .collect();
     let base_name = directory.to_str().unwrap();
 
     if std::env::var("PROMOTE_LLVM_IR").is_ok() {
@@ -145,13 +153,23 @@ fn find_matching_files (
         }
     }
 
-    let entries_expected: Vec<_> = entries.iter().filter(|p|
-        p.extension().expect("Must be extension").to_str().unwrap().eq(ext_expected))
+    let entries_expected: Vec<_> = entries
+        .iter()
+        .filter(|p| {
+            p.extension()
+                .expect("Must be extension")
+                .to_str()
+                .unwrap()
+                .eq(ext_expected)
+        })
         .collect();
 
     let (actual_num, expected_num) = (entries_actual.len(), entries_expected.len());
     if actual_num != expected_num {
-        let err_string = format!("Did not match number of expected {} and actual results {}", expected_num, actual_num);
+        let err_string = format!(
+            "Did not match number of expected {} and actual results {}",
+            expected_num, actual_num
+        );
         return Err(std::io::Error::new(std::io::ErrorKind::Other, err_string));
     }
     if actual_num == 0 {
@@ -164,7 +182,7 @@ fn find_matching_files (
         expected.set_extension(ext_expected);
         let pair = ActualExpectedPair {
             actual: actual.clone(),
-            expected
+            expected,
         };
         result.push(pair);
     }
@@ -176,14 +194,14 @@ fn compare_actual_to_expected(
     pair: ActualExpectedPair,
     test_plan: &TestPlan,
 ) -> anyhow::Result<()> {
-
     let mut diff_msg = String::new();
     let file_actual = fs::read_to_string(pair.actual.as_os_str().to_str().unwrap())?;
     let file_expected = fs::read_to_string(pair.expected.as_os_str().to_str().unwrap())?;
 
     let diff = TextDiff::from_lines(&file_expected, &file_actual);
     for change in diff.iter_all_changes() {
-        if change.value().contains("source_filename") {  // depends of running system, ignore this
+        if change.value().contains("source_filename") {
+            // depends of running system, ignore this
             continue;
         }
         let sign = match change.tag() {
@@ -200,8 +218,7 @@ fn compare_actual_to_expected(
     if !diff_msg.is_empty() {
         return test_plan.test_msg(format!(
             "LLVM IR actual ({:?}) does not equal expected: \n\n{}",
-            file_actual,
-            diff_msg
+            file_actual, diff_msg
         ));
     } else {
         // If the test was expected to fail but it passed, then issue an error.
