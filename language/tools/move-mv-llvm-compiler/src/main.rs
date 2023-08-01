@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
 
             deps.push(PackagePaths {
                 name: None,
-                paths: compiler_dependency.clone(),
+                paths: compiler_dependency,
                 named_address_map: named_address_map.clone(),
             });
         }
@@ -87,17 +87,17 @@ fn main() -> anyhow::Result<()> {
         if let Some(ref move_package_path_maybe) = args.move_package_path {
             let move_package_path: PathBuf = PathBuf::from(move_package_path_maybe);
             let res = resolve_dependency(move_package_path, args.dev, args.test);
-            if res.is_ok() {
+            if let Ok(..) = res {
                 let compiler_dependency: Vec<String> = res
                     .as_ref()
                     .unwrap()
                     .compiler_dependency
-                    .to_owned()
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .filter(|s| *s != target_path)
                     .collect();
 
-                let account_addresses = res.unwrap().to_owned().account_addresses;
+                let account_addresses = res.unwrap().account_addresses;
 
                 // Note: could use a simple chaining iterator like
                 // named_address_map.extend(account_addresses.iter().map(|(sym, acc)|
@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()> {
 
                 deps.push(PackagePaths {
                     name: None,
-                    paths: compiler_dependency.clone(),
+                    paths: compiler_dependency,
                     named_address_map: named_address_map.clone(),
                 });
             }
