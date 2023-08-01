@@ -6,8 +6,7 @@
 
 //#![forbid(unsafe_code)]
 
-use anyhow::Context;
-use anyhow::bail;
+use anyhow::{bail, Context};
 use clap::Parser;
 use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
 use llvm_sys::{core::LLVMContextCreate, prelude::LLVMModuleRef};
@@ -19,12 +18,12 @@ use move_bytecode_source_map::{mapping::SourceMapping, utils::source_map_from_fi
 use move_command_line_common::files::{
     MOVE_COMPILED_EXTENSION, MOVE_EXTENSION, SOURCE_MAP_EXTENSION,
 };
-use move_compiler::shared::PackagePaths;
-use move_compiler::Flags;
+use move_compiler::{shared::PackagePaths, Flags};
 use move_ir_types::location::Spanned;
-use move_model::options::ModelBuilderOptions;
-use move_model::run_model_builder_with_options_and_compilation_flags;
-use move_model::{model::GlobalEnv, run_bytecode_model_builder, run_model_builder};
+use move_model::{
+    model::GlobalEnv, options::ModelBuilderOptions, run_bytecode_model_builder, run_model_builder,
+    run_model_builder_with_options_and_compilation_flags,
+};
 use move_mv_llvm_compiler::{cli::Args, disassembler::Disassembler};
 use move_symbol_pool::Symbol as SymbolPool;
 use std::{fs, path::Path};
@@ -35,7 +34,6 @@ use move_stdlib::{move_stdlib_files, move_stdlib_named_addresses};
 use std::path::PathBuf;
 
 use move_mv_llvm_compiler::package::resolve_dependency;
-
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();

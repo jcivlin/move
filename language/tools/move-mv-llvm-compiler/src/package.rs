@@ -2,21 +2,12 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::bail;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use move_cli::base::reroot_path;
 use move_command_line_common::env::MOVE_HOME;
 use move_core_types::account_address::AccountAddress;
-use move_symbol_pool::Symbol;
-use regex;
-use std::collections::BTreeMap;
-use std::{
-    collections::HashSet,
-    fs,
-    path::{Path, PathBuf},
-};
-use {
-    move_package::source_package::{
+use move_package::{
+    source_package::{
         layout::SourcePackageLayout,
         manifest_parser,
         manifest_parser::{parse_move_manifest_string, parse_source_manifest},
@@ -25,7 +16,14 @@ use {
             SourceManifest,
         },
     },
-    move_package::{Architecture, BuildConfig},
+    Architecture, BuildConfig,
+};
+use move_symbol_pool::Symbol;
+use regex;
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
