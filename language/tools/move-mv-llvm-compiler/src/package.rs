@@ -105,7 +105,7 @@ pub fn resolve_dependency(
         compiler_dependency,
         account_addresses,
     };
-    return Ok(dep_and_names);
+    Ok(dep_and_names)
 }
 
 use move_command_line_common::files::{extension_equals, find_filenames, MOVE_EXTENSION};
@@ -114,7 +114,7 @@ use move_command_line_common::files::{extension_equals, find_filenames, MOVE_EXT
 const MODULES_DIR: &str = "sources";
 fn move_dep_files(path: PathBuf) -> Vec<String> {
     let mut dir = path;
-    dir.push(MODULES_DIR.to_string());
+    dir.push(MODULES_DIR);
     find_filenames(&[dir], |p| extension_equals(p, MOVE_EXTENSION)).unwrap()
 }
 
@@ -131,12 +131,12 @@ fn download_deps_for_package(
 
     download_dependency_repos(
         &manifest,
-        &build_config,
+        build_config,
         path,
         &mut processed_deps,
         &mut deps_for_pack,
     )?;
-    return Ok(deps_for_pack);
+    Ok(deps_for_pack)
 }
 
 fn parse_toml_manifest(path: PathBuf) -> anyhow::Result<toml::Value> {
