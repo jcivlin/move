@@ -7,7 +7,7 @@
 //#![forbid(unsafe_code)]
 
 use anyhow::Context;
-use anyhow::{bail, Result};
+use anyhow::bail;
 use clap::Parser;
 use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
 use llvm_sys::{core::LLVMContextCreate, prelude::LLVMModuleRef};
@@ -19,15 +19,12 @@ use move_bytecode_source_map::{mapping::SourceMapping, utils::source_map_from_fi
 use move_command_line_common::files::{
     MOVE_COMPILED_EXTENSION, MOVE_EXTENSION, SOURCE_MAP_EXTENSION,
 };
-use move_compiler::shared;
 use move_compiler::shared::PackagePaths;
 use move_compiler::Flags;
 use move_ir_types::location::Spanned;
 use move_model::options::ModelBuilderOptions;
 use move_model::run_model_builder_with_options_and_compilation_flags;
 use move_model::{model::GlobalEnv, run_bytecode_model_builder, run_model_builder};
-use move_mv_llvm_compiler::stackless::extensions::ModuleEnvExt;
-use move_mv_llvm_compiler::stackless::write_object_file;
 use move_mv_llvm_compiler::{cli::Args, disassembler::Disassembler};
 use move_symbol_pool::Symbol as SymbolPool;
 use std::{fs, path::Path};
@@ -35,19 +32,10 @@ use std::{fs, path::Path};
 use move_compiler::shared::NumericalAddress;
 use move_stdlib::{move_stdlib_files, move_stdlib_named_addresses};
 
-use crate::Architecture::Move;
-use move_package::{Architecture, BuildConfig};
-
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use move_package::source_package::layout::SourcePackageLayout;
-use move_package::{
-    resolution,
-    source_package::{manifest_parser, parsed_manifest::SourceManifest},
-};
+use move_mv_llvm_compiler::package::resolve_dependency;
 
-use move_mv_llvm_compiler::package::{resolve_dependency, DependencyAndAccountAddress};
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
