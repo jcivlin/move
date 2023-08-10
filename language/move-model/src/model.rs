@@ -1234,7 +1234,7 @@ impl GlobalEnv {
                         Bytecode::Call(i) => Some(*i),
                         Bytecode::CallGeneric(i) => {
                             Some(module.function_instantiation_at(*i).handle)
-                        },
+                        }
                         _ => None,
                     };
                     handle_idx.map(|idx| {
@@ -1295,11 +1295,14 @@ impl GlobalEnv {
         let field_name = self.symbol_pool.make("v");
         let mut field_data = BTreeMap::new();
         let field_id = FieldId::new(field_name);
-        field_data.insert(field_id, FieldData {
-            name: field_name,
-            offset: 0,
-            ty,
-        });
+        field_data.insert(
+            field_id,
+            FieldData {
+                name: field_name,
+                offset: 0,
+                ty,
+            },
+        );
         StructData {
             name: self.ghost_memory_name(var_name),
             loc,
@@ -2207,11 +2210,11 @@ impl<'env> ModuleEnv<'env> {
             ),
             SignatureToken::MutableReference(t) => {
                 Type::Reference(true, Box::new(self.internal_globalize_signature(module, t)))
-            },
+            }
             SignatureToken::TypeParameter(index) => Type::TypeParameter(*index),
             SignatureToken::Vector(bt) => {
                 Type::Vector(Box::new(self.internal_globalize_signature(module, bt)))
-            },
+            }
             SignatureToken::Struct(handle_idx) => {
                 let struct_view =
                     StructHandleView::new(module, module.struct_handle_at(*handle_idx));
@@ -2223,7 +2226,7 @@ impl<'env> ModuleEnv<'env> {
                     .find_struct(self.env.symbol_pool.make(struct_view.name().as_str()))
                     .expect("undefined struct");
                 Type::Struct(declaring_module_env.data.id, struct_env.get_id(), vec![])
-            },
+            }
             SignatureToken::StructInstantiation(handle_idx, args) => {
                 let struct_view =
                     StructHandleView::new(module, module.struct_handle_at(*handle_idx));
@@ -2239,7 +2242,7 @@ impl<'env> ModuleEnv<'env> {
                     struct_env.get_id(),
                     self.internal_globalize_signatures(module, args),
                 )
-            },
+            }
         }
     }
 
@@ -2266,7 +2269,7 @@ impl<'env> ModuleEnv<'env> {
             Some(idx) => {
                 let actuals = &module.signature_at(idx).0;
                 self.globalize_signatures(actuals)
-            },
+            }
             None => Some(vec![]),
         }
     }
@@ -3057,7 +3060,7 @@ impl<'env> FunctionEnv<'env> {
                     module_name,
                     self.symbol_pool().string(qsym.symbol)
                 )))
-            },
+            }
             _ => None,
         }
     }
@@ -3074,7 +3077,7 @@ impl<'env> FunctionEnv<'env> {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }

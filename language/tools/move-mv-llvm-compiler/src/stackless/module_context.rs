@@ -156,7 +156,9 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         let m_e = g_env.get_module(m_env.get_id());
         let cm = m_e.get_verified_module().unwrap();
         for s_def_inst in cm.struct_instantiations() {
-            let tys = m_env.get_type_actuals(Some(s_def_inst.type_parameters)).unwrap();
+            let tys = m_env
+                .get_type_actuals(Some(s_def_inst.type_parameters))
+                .unwrap();
             let s_env = m_env.get_struct_by_def_idx(s_def_inst.def);
             let created = create_opaque_named_struct(&s_env, &tys);
             assert!(created, "struct already exists");
@@ -166,7 +168,9 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         // Similarly, pull in generics from field instantiations.
         for f_inst in cm.field_instantiations() {
             let fld_handle = cm.field_handle_at(f_inst.handle);
-            let tys = m_env.get_type_actuals(Some(f_inst.type_parameters)).unwrap();
+            let tys = m_env
+                .get_type_actuals(Some(f_inst.type_parameters))
+                .unwrap();
             let s_env = m_env.get_struct_by_def_idx(fld_handle.owner);
             if create_opaque_named_struct(&s_env, &tys) {
                 all_structs.push((s_env, tys));

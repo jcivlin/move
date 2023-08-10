@@ -178,7 +178,7 @@ impl Harness {
                 }
                 mailbox.extend(success.messages);
                 self.commit_changeset(success.change_set)
-            },
+            }
             Err(error) => self.log(format!("  FAIL  {:}", error)),
         }
     }
@@ -201,19 +201,19 @@ impl Harness {
                             .borrow_mut()
                             .insert((addr, struct_tag), v)
                             .is_none());
-                    },
+                    }
                     Op::Modify(v) => {
                         self.resource_store
                             .borrow_mut()
                             .insert((addr, struct_tag), v)
                             .unwrap();
-                    },
+                    }
                     Op::Delete => {
                         self.resource_store
                             .borrow_mut()
                             .remove(&(addr, struct_tag))
                             .unwrap();
-                    },
+                    }
                 }
             }
         }
@@ -361,7 +361,7 @@ impl Harness {
                 ),
                 Ok((mut units, _)) => {
                     module_cache.insert(id.to_owned(), units.remove(0).into_compiled_unit());
-                },
+                }
             }
         }
         Ok(module_cache)

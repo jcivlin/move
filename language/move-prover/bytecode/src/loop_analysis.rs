@@ -139,10 +139,13 @@ impl LoopAnalysisProcessor {
 
         let back_edge_locs = loop_annotation.back_edges_locations();
         let invariant_locs = loop_annotation.invariants_locations();
-        let mut builder =
-            FunctionDataBuilder::new_with_options(func_env, data, FunctionDataBuilderOptions {
+        let mut builder = FunctionDataBuilder::new_with_options(
+            func_env,
+            data,
+            FunctionDataBuilderOptions {
                 no_fallthrough_jump_removal: true,
-            });
+            },
+        );
         let mut goto_fixes = vec![];
         let code = std::mem::take(&mut builder.data.code);
         for (offset, bytecode) in code.into_iter().enumerate() {
@@ -289,15 +292,15 @@ impl LoopAnalysisProcessor {
                             builder.emit(Bytecode::Prop(*attr_id, PropKind::Assume, exp.clone()));
                         }
                     }
-                },
+                }
                 Bytecode::Prop(_, PropKind::Assert, _)
                     if invariant_locs.contains(&(offset as CodeOffset)) =>
                 {
                     // skip it, as the invariant should have been added as an assert after the label
-                },
+                }
                 _ => {
                     builder.emit(bytecode);
-                },
+                }
             }
             // mark that the goto labels in this bytecode needs to be updated to a new label
             // representing the invariant-checking block for the loop.
@@ -346,14 +349,14 @@ impl LoopAnalysisProcessor {
             let updated_goto = match &builder.data.code[code_offset] {
                 Bytecode::Jump(attr_id, old_label) => {
                     Bytecode::Jump(*attr_id, *invariant_checker_labels.get(old_label).unwrap())
-                },
+                }
                 Bytecode::Branch(attr_id, if_label, else_label, idx) => {
                     let new_if_label = *invariant_checker_labels.get(if_label).unwrap_or(if_label);
                     let new_else_label = *invariant_checker_labels
                         .get(else_label)
                         .unwrap_or(else_label);
                     Bytecode::Branch(*attr_id, new_if_label, new_else_label, *idx)
-                },
+                }
                 _ => panic!("Expect a branch statement"),
             };
             builder.data.code[code_offset] = updated_goto;
@@ -377,10 +380,13 @@ impl LoopAnalysisProcessor {
         unrolling_mark: &LoopUnrollingMark,
     ) -> FunctionData {
         let options = ProverOptions::get(func_env.module_env.env);
-        let mut builder =
-            FunctionDataBuilder::new_with_options(func_env, data, FunctionDataBuilderOptions {
+        let mut builder = FunctionDataBuilder::new_with_options(
+            func_env,
+            data,
+            FunctionDataBuilderOptions {
                 no_fallthrough_jump_removal: true,
-            });
+            },
+        );
 
         // collect labels that belongs to this loop
         let in_loop_labels: BTreeSet<_> = unrolling_mark
@@ -431,7 +437,7 @@ impl LoopAnalysisProcessor {
                 match &mut new_bc {
                     Bytecode::Label(_, label) => {
                         *label = *label_remapping.get(&(*label, i)).unwrap();
-                    },
+                    }
                     Bytecode::Jump(_, label) => {
                         if in_loop_labels.contains(label) {
                             if label == loop_header {
@@ -440,7 +446,7 @@ impl LoopAnalysisProcessor {
                                 *label = *label_remapping.get(&(*label, i)).unwrap();
                             }
                         }
-                    },
+                    }
                     Bytecode::Branch(_, then_label, else_label, _) => {
                         if in_loop_labels.contains(then_label) {
                             if then_label == loop_header {
@@ -456,7 +462,7 @@ impl LoopAnalysisProcessor {
                                 *else_label = *label_remapping.get(&(*else_label, i)).unwrap();
                             }
                         }
-                    },
+                    }
                     _ => (),
                 }
                 builder.emit(new_bc);
@@ -474,7 +480,7 @@ impl LoopAnalysisProcessor {
                     Bytecode::Jump(_, label) => {
                         assert_eq!(label, loop_header);
                         *label = *label_remapping.get(&(*label, 0)).unwrap();
-                    },
+                    }
                     Bytecode::Branch(_, then_label, else_label, _) => {
                         if then_label == loop_header {
                             *then_label = *label_remapping.get(&(*then_label, 0)).unwrap();
@@ -482,7 +488,7 @@ impl LoopAnalysisProcessor {
                             assert_eq!(else_label, loop_header);
                             *else_label = *label_remapping.get(&(*else_label, 0)).unwrap();
                         }
-                    },
+                    }
                     _ => (),
                 }
             }
@@ -530,7 +536,7 @@ impl LoopAnalysisProcessor {
                         if asserts_as_invariants.contains(attr_id) =>
                     {
                         invariants.insert(code_offset, (*attr_id, exp.clone()));
-                    },
+                    }
                     _ => break,
                 }
             }
@@ -563,12 +569,12 @@ impl LoopAnalysisProcessor {
                         match assumes_as_unrolling_marks.get(attr_id) {
                             None => {
                                 break;
-                            },
+                            }
                             Some(count) => {
                                 marks.insert(code_offset, (*attr_id, *count));
-                            },
+                            }
                         }
-                    },
+                    }
 
                     _ => break,
                 }
@@ -647,13 +653,13 @@ impl LoopAnalysisProcessor {
                 let code_offset = match cfg.content(l.loop_latch) {
                     BlockContent::Dummy => {
                         panic!("A loop body should never contain a dummy block")
-                    },
+                    }
                     BlockContent::Basic { upper, .. } => *upper,
                 };
                 match &code[code_offset as usize] {
-                    Bytecode::Jump(_, goto_label) if *goto_label == header_label => {},
+                    Bytecode::Jump(_, goto_label) if *goto_label == header_label => {}
                     Bytecode::Branch(_, if_label, else_label, _)
-                        if *if_label == header_label || *else_label == header_label => {},
+                        if *if_label == header_label || *else_label == header_label => {}
                     _ => panic!("The latch bytecode of a loop does not branch into the header"),
                 };
                 code_offset
@@ -677,13 +683,13 @@ impl LoopAnalysisProcessor {
             .map(|block_id| match cfg.content(*block_id) {
                 BlockContent::Dummy => {
                     panic!("A loop body should never contain a dummy block")
-                },
+                }
                 BlockContent::Basic { lower, upper } => {
                     let block: Vec<_> = (*lower..=*upper)
                         .map(|i| code.get(i as usize).unwrap().clone())
                         .collect();
                     block
-                },
+                }
             })
             .collect()
     }
@@ -750,13 +756,16 @@ impl LoopAnalysisProcessor {
                     // loop invariant instrumentation route
                     let (val_targets, mut_targets) =
                         Self::collect_loop_targets(&cfg, &func_target, &sub_loops);
-                    fat_loops_with_invariants.insert(label, FatLoop {
-                        invariants,
-                        val_targets,
-                        mut_targets,
-                        back_edges,
-                    });
-                },
+                    fat_loops_with_invariants.insert(
+                        label,
+                        FatLoop {
+                            invariants,
+                            val_targets,
+                            mut_targets,
+                            back_edges,
+                        },
+                    );
+                }
                 Some((attr_id, count)) => {
                     if !invariants.is_empty() {
                         let error_loc = attr_id.map_or_else(
@@ -770,13 +779,16 @@ impl LoopAnalysisProcessor {
                     }
                     // loop unrolling route
                     let loop_body = Self::collect_loop_body_bytecode(code, &cfg, &sub_loops);
-                    fat_loops_for_unrolling.insert(label, LoopUnrollingMark {
-                        marker: attr_id,
-                        loop_body,
-                        back_edges,
-                        iter_count: count,
-                    });
-                },
+                    fat_loops_for_unrolling.insert(
+                        label,
+                        LoopUnrollingMark {
+                            marker: attr_id,
+                            loop_body,
+                            back_edges,
+                            iter_count: count,
+                        },
+                    );
+                }
             }
         }
 

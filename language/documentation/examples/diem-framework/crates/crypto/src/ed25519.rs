@@ -525,7 +525,7 @@ fn check_s_lt_l(s: &[u8]) -> bool {
         match s[i].cmp(&L[i]) {
             Ordering::Less => return true,
             Ordering::Greater => return false,
-            _ => {},
+            _ => {}
         }
     }
     // As this stage S == L which implies a non canonical S.

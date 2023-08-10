@@ -241,7 +241,7 @@ pub fn boogie_type(env: &GlobalEnv, ty: &Type) -> String {
         TypeParameter(idx) => boogie_type_param(env, *idx),
         Fun(..) | Tuple(..) | TypeDomain(..) | ResourceDomain(..) | Error | Var(..) => {
             format!("<<unsupported: {:?}>>", ty)
-        },
+        }
     }
 }
 
@@ -267,12 +267,12 @@ pub fn boogie_bv_type(env: &GlobalEnv, ty: &Type) -> String {
         Vector(et) => format!("Vec ({})", boogie_bv_type(env, et)),
         Struct(mid, sid, inst) => {
             boogie_struct_name_bv(&env.get_module(*mid).into_struct(*sid), inst, true)
-        },
+        }
         Reference(_, bt) => format!("$Mutation ({})", boogie_bv_type(env, bt)),
         TypeParameter(idx) => boogie_type_param(env, *idx),
         Fun(..) | Tuple(..) | TypeDomain(..) | ResourceDomain(..) | Error | Var(..) => {
             format!("<<unsupported: {:?}>>", ty)
-        },
+        }
     }
 }
 
@@ -344,7 +344,7 @@ pub fn boogie_type_suffix_bv(env: &GlobalEnv, ty: &Type, bv_flag: bool) -> Strin
                 } else {
                     "num".to_string()
                 }
-            },
+            }
             Address => "address".to_string(),
             Signer => "signer".to_string(),
             Bool => "bool".to_string(),
@@ -357,7 +357,7 @@ pub fn boogie_type_suffix_bv(env: &GlobalEnv, ty: &Type, bv_flag: bool) -> Strin
         ),
         Struct(mid, sid, inst) => {
             boogie_type_suffix_for_struct(&env.get_module(*mid).into_struct(*sid), inst, bv_flag)
-        },
+        }
         TypeParameter(idx) => boogie_type_param(env, *idx),
         Fun(..) | Tuple(..) | TypeDomain(..) | ResourceDomain(..) | Error | Var(..)
         | Reference(..) => format!("<<unsupported {:?}>>", ty),
@@ -688,10 +688,14 @@ impl TypeIdentToken {
         fn get_char_array(tokens: &[TypeIdentToken], start: usize, end: usize) -> String {
             let elements = (start..end)
                 .map(|k| {
-                    format!("[{} := {}]", k - start, match &tokens[k] {
-                        TypeIdentToken::Char(c) => *c,
-                        TypeIdentToken::Variable(_) => unreachable!(),
-                    })
+                    format!(
+                        "[{} := {}]",
+                        k - start,
+                        match &tokens[k] {
+                            TypeIdentToken::Char(c) => *c,
+                            TypeIdentToken::Variable(_) => unreachable!(),
+                        }
+                    )
                 })
                 .join("");
             format!("Vec(DefaultVecMap(){}, {})", elements, end - start)
@@ -707,14 +711,14 @@ impl TypeIdentToken {
                     if char_seq_start.is_none() {
                         char_seq_start = Some(i);
                     }
-                },
+                }
                 TypeIdentToken::Variable(name) => {
                     if let Some(start) = &char_seq_start {
                         segments.push(get_char_array(&tokens, *start, i));
                     };
                     char_seq_start = None;
                     segments.push(name.clone());
-                },
+                }
             }
         }
         if let Some(start) = char_seq_start {
@@ -790,7 +794,7 @@ fn type_name_to_ident_tokens(
             tokens.extend(type_name_to_ident_tokens(env, element, formatter));
             tokens.extend(TypeIdentToken::make(">"));
             tokens
-        },
+        }
         Type::Struct(mid, sid, ty_args) => {
             let module_env = env.get_module(*mid);
             let struct_env = module_env.get_struct(*sid);
@@ -814,17 +818,17 @@ fn type_name_to_ident_tokens(
                 tokens.extend(TypeIdentToken::make(">"));
             }
             tokens
-        },
+        }
         Type::TypeParameter(idx) => {
             vec![TypeIdentToken::Variable(format!(
                 "$TypeName(#{}_info)",
                 *idx
             ))]
-        },
+        }
         // move types that are not allowed
         Type::Reference(..) | Type::Tuple(..) => {
             unreachable!("Prohibited move type in type_name call");
-        },
+        }
         // spec only types
         Type::Primitive(PrimitiveType::Num)
         | Type::Primitive(PrimitiveType::Range)
@@ -833,11 +837,11 @@ fn type_name_to_ident_tokens(
         | Type::TypeDomain(..)
         | Type::ResourceDomain(..) => {
             unreachable!("Unexpected spec-only type in type_name call");
-        },
+        }
         // temporary types
         Type::Error | Type::Var(..) => {
             unreachable!("Unexpected temporary type in type_name call");
-        },
+        }
     }
 }
 
@@ -900,7 +904,7 @@ fn type_name_to_info_pack(env: &GlobalEnv, ty: &Type) -> Option<TypeInfoPack> {
                     .display(module_env.symbol_pool())
                     .to_string(),
             ))
-        },
+        }
         Type::TypeParameter(idx) => Some(TypeInfoPack::Symbolic(*idx)),
         // move types that will cause an error
         Type::Primitive(PrimitiveType::Bool)
@@ -916,7 +920,7 @@ fn type_name_to_info_pack(env: &GlobalEnv, ty: &Type) -> Option<TypeInfoPack> {
         // move types that are not allowed
         Type::Reference(..) | Type::Tuple(..) => {
             unreachable!("Prohibited move type in type_name call");
-        },
+        }
         // spec only types
         Type::Primitive(PrimitiveType::Num)
         | Type::Primitive(PrimitiveType::Range)
@@ -925,11 +929,11 @@ fn type_name_to_info_pack(env: &GlobalEnv, ty: &Type) -> Option<TypeInfoPack> {
         | Type::TypeDomain(..)
         | Type::ResourceDomain(..) => {
             unreachable!("Unexpected spec-only type in type_name call");
-        },
+        }
         // temporary types
         Type::Error | Type::Var(..) => {
             unreachable!("Unexpected temporary type in type_name call");
-        },
+        }
     }
 }
 
@@ -970,7 +974,7 @@ pub fn boogie_reflection_type_info(env: &GlobalEnv, ty: &Type) -> (String, Strin
                     struct_repr
                 ),
             )
-        },
+        }
         Some(TypeInfoPack::Symbolic(idx)) => (
             get_symbol_is_struct(idx),
             format!(

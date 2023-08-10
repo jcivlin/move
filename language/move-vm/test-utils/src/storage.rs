@@ -154,16 +154,16 @@ where
                     "Failed to apply changes -- key {:?} already exists",
                     entry.key()
                 )
-            },
+            }
             (Occupied(entry), Delete) => {
                 entry.remove();
-            },
+            }
             (Occupied(entry), Modify(val)) => {
                 *entry.into_mut() = val;
-            },
+            }
             (Vacant(entry), New(val)) => {
                 entry.insert(val);
-            },
+            }
             (Vacant(entry), Delete | Modify(_)) => bail!(
                 "Failed to apply changes -- key {:?} does not exist",
                 entry.key()
@@ -212,12 +212,12 @@ impl InMemoryStorage {
             match self.accounts.entry(addr) {
                 btree_map::Entry::Occupied(entry) => {
                     entry.into_mut().apply(account_changeset)?;
-                },
+                }
                 btree_map::Entry::Vacant(entry) => {
                     let mut account_storage = InMemoryAccountStorage::new();
                     account_storage.apply(account_changeset)?;
                     entry.insert(account_storage);
-                },
+                }
             }
         }
 

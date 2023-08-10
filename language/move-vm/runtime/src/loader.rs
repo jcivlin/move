@@ -116,7 +116,7 @@ impl ScriptCache {
                     script.parameter_tys.clone(),
                     script.return_tys.clone(),
                 )
-            },
+            }
         }
     }
 }
@@ -188,7 +188,7 @@ impl ModuleCache {
                 self.functions
                     .truncate(self.functions.len() - function_count);
                 Err(err.finish(Location::Undefined))
-            },
+            }
         }
     }
 
@@ -223,7 +223,7 @@ impl ModuleCache {
                     // So in the spirit of not crashing we just leave it as None and
                     // log the issue.
                     error!("Arc<StructType> cannot have any live reference while publishing");
-                },
+                }
             }
         }
 
@@ -321,7 +321,7 @@ impl ModuleCache {
                     let mut struct_type = (*self.structs[struct_idx]).clone();
                     struct_type.fields = fields;
                     self.structs[struct_idx] = Arc::new(struct_type);
-                },
+                }
             }
             struct_idx += 1;
         }
@@ -397,15 +397,15 @@ impl ModuleCache {
             SignatureToken::Vector(inner_tok) => {
                 let inner_type = Self::make_type_internal(module, inner_tok, resolver)?;
                 Type::Vector(Box::new(inner_type))
-            },
+            }
             SignatureToken::Reference(inner_tok) => {
                 let inner_type = Self::make_type_internal(module, inner_tok, resolver)?;
                 Type::Reference(Box::new(inner_type))
-            },
+            }
             SignatureToken::MutableReference(inner_tok) => {
                 let inner_type = Self::make_type_internal(module, inner_tok, resolver)?;
                 Type::MutableReference(Box::new(inner_type))
-            },
+            }
             SignatureToken::Struct(sh_idx) => {
                 let struct_handle = module.struct_handle_at(*sh_idx);
                 let struct_name = module.identifier_at(struct_handle.name);
@@ -416,7 +416,7 @@ impl ModuleCache {
                 );
                 let def_idx = resolver(struct_name, &module_id)?;
                 Type::Struct(def_idx)
-            },
+            }
             SignatureToken::StructInstantiation(sh_idx, tys) => {
                 let type_parameters: Vec<_> = tys
                     .iter()
@@ -431,7 +431,7 @@ impl ModuleCache {
                 );
                 let def_idx = resolver(struct_name, &module_id)?;
                 Type::StructInstantiation(def_idx, type_parameters)
-            },
+            }
         };
         Ok(res)
     }
@@ -535,14 +535,14 @@ impl ModuleCache {
                 let mut inner = self.calculate_depth_of_type(ty, depth_cache)?;
                 inner.scale(1);
                 inner
-            },
+            }
             Type::TyParam(ty_idx) => DepthFormula::type_parameter(*ty_idx),
             Type::Struct(cache_idx) => {
                 let mut struct_formula = self.calculate_depth_of_struct(*cache_idx, depth_cache)?;
                 debug_assert!(struct_formula.terms.is_empty());
                 struct_formula.scale(1);
                 struct_formula
-            },
+            }
             Type::StructInstantiation(cache_idx, ty_args) => {
                 let ty_arg_map = ty_args
                     .iter()
@@ -556,7 +556,7 @@ impl ModuleCache {
                 let mut subst_struct_formula = struct_formula.subst(ty_arg_map)?;
                 subst_struct_formula.scale(1);
                 subst_struct_formula
-            },
+            }
         })
     }
 }
@@ -707,7 +707,7 @@ impl Loader {
                 let ver_script = self.deserialize_and_verify_script(script_blob, data_store)?;
                 let script = Script::new(ver_script, &hash_value, &self.module_cache.read())?;
                 scripts.insert(hash_value, script)
-            },
+            }
         };
 
         // verify type arguments
@@ -757,7 +757,7 @@ impl Loader {
                 return Err(PartialVMError::new(StatusCode::CODE_DESERIALIZATION_ERROR)
                     .with_message(msg)
                     .finish(Location::Script));
-            },
+            }
         };
 
         match self.verify_script(&script) {
@@ -770,7 +770,7 @@ impl Loader {
                     .collect::<VMResult<_>>()?;
                 self.verify_script_dependencies(&script, loaded_deps)?;
                 Ok(script)
-            },
+            }
             Err(err) => Err(err),
         }
     }
@@ -855,7 +855,7 @@ impl Loader {
                 btree_map::Entry::Vacant(vacant_entry) => {
                     vacant_entry.insert(expected);
                     true
-                },
+                }
                 btree_map::Entry::Occupied(occupied_entry) => *occupied_entry.get() == expected,
             },
             // Recursive types we need to recurse the matching types
@@ -863,7 +863,7 @@ impl Loader {
             | (Type::MutableReference(ret_inner), Type::MutableReference(expected_inner))
             | (Type::Vector(ret_inner), Type::Vector(expected_inner)) => {
                 Self::match_return_type(ret_inner, expected_inner, map)
-            },
+            }
             // For structs the both need to be the same struct.
             (Type::Struct(ret_idx), Type::Struct(expected_idx)) => *ret_idx == *expected_idx,
             // For struct instantiations we need to additionally match all type arguments
@@ -877,7 +877,7 @@ impl Loader {
                         .iter()
                         .zip(expected_fields.iter())
                         .all(|types| Self::match_return_type(types.0, types.1, map))
-            },
+            }
             // For primitive types we need to assure the types match
             (Type::U8, Type::U8)
             | (Type::U16, Type::U16)
@@ -1181,7 +1181,7 @@ impl Loader {
                         .map_err(|e| e.finish(Location::Undefined))?;
                     Type::StructInstantiation(idx, type_params)
                 }
-            },
+            }
         })
     }
 
@@ -1243,7 +1243,7 @@ impl Loader {
             Err(err) if allow_loading_failure => return Err(err),
             Err(err) => {
                 return Err(expect_no_verification_errors(err));
-            },
+            }
         };
 
         // for bytes obtained from the data store, they should always deserialize and verify.
@@ -1363,7 +1363,7 @@ impl Loader {
                             allow_dependency_loading_failure,
                             dependencies_depth + 1,
                         )?
-                    },
+                    }
                     Some(cached) => cached,
                 };
                 cached_deps.push(loaded);
@@ -1497,7 +1497,7 @@ impl Loader {
                 {
                     return Err(PartialVMError::new(StatusCode::TOO_MANY_TYPE_NODES));
                 }
-            },
+            }
             Type::StructInstantiation(_, struct_inst) => {
                 let mut sum_nodes = 1u64;
                 for ty in ty_args.iter().chain(struct_inst.iter()) {
@@ -1506,7 +1506,7 @@ impl Loader {
                         return Err(PartialVMError::new(StatusCode::TOO_MANY_TYPE_NODES));
                     }
                 }
-            },
+            }
             Type::Address
             | Type::Bool
             | Type::Signer
@@ -1589,11 +1589,11 @@ impl Loader {
                 "Unexpected TyParam type after translating from TypeTag to Type".to_string(),
             )),
 
-            Type::Vector(ty) => {
-                AbilitySet::polymorphic_abilities(AbilitySet::VECTOR, vec![false], vec![
-                    self.abilities(ty)?
-                ])
-            },
+            Type::Vector(ty) => AbilitySet::polymorphic_abilities(
+                AbilitySet::VECTOR,
+                vec![false],
+                vec![self.abilities(ty)?],
+            ),
             Type::Struct(idx) => Ok(self.module_cache.read().struct_at(*idx).abilities),
             Type::StructInstantiation(idx, type_args) => {
                 let struct_type = self.module_cache.read().struct_at(*idx);
@@ -1610,7 +1610,7 @@ impl Loader {
                     declared_phantom_parameters,
                     type_argument_abilities,
                 )
-            },
+            }
         }
     }
 }
@@ -2115,14 +2115,14 @@ impl Module {
                                                 expects one and only one signature token"
                                                     .to_owned(),
                                             ));
-                                        },
+                                        }
                                         Some(sig_token) => sig_token,
                                     };
                                     single_signature_token_map
                                         .insert(*si, cache.make_type_while_loading(&module, ty)?);
                                 }
-                            },
-                            _ => {},
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -2391,7 +2391,7 @@ impl Script {
                                         .to_owned(),
                                 )
                                 .finish(Location::Script));
-                            },
+                            }
                             Some(sig_token) => sig_token,
                         };
                         single_signature_token_map.insert(
@@ -2401,8 +2401,8 @@ impl Script {
                                 .map_err(|e| e.finish(Location::Script))?,
                         );
                     }
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
@@ -2558,11 +2558,11 @@ impl Function {
                     .get_module(module_id)
                     .expect("ModuleId on Function must exist");
                 Resolver::for_module(loader, module)
-            },
+            }
             Scope::Script(script_hash) => {
                 let script = loader.get_script(script_hash);
                 Resolver::for_script(loader, script)
-            },
+            }
         }
     }
 
@@ -2780,16 +2780,16 @@ impl Loader {
             Type::Vector(ty) => TypeTag::Vector(Box::new(self.type_to_type_tag(ty)?)),
             Type::Struct(gidx) => {
                 TypeTag::Struct(Box::new(self.struct_gidx_to_type_tag(*gidx, &[])?))
-            },
+            }
             Type::StructInstantiation(gidx, ty_args) => {
                 TypeTag::Struct(Box::new(self.struct_gidx_to_type_tag(*gidx, ty_args)?))
-            },
+            }
             Type::Reference(_) | Type::MutableReference(_) | Type::TyParam(_) => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("no type tag for {:?}", ty)),
                 );
-            },
+            }
         })
     }
 
@@ -2801,14 +2801,14 @@ impl Loader {
                 Type::Vector(ty) | Type::Reference(ty) | Type::MutableReference(ty) => {
                     result += 1;
                     todo.push(ty);
-                },
+                }
                 Type::StructInstantiation(_, ty_args) => {
                     result += 1;
                     todo.extend(ty_args.iter())
-                },
+                }
                 _ => {
                     result += 1;
-                },
+                }
             }
         }
         result
@@ -2876,39 +2876,39 @@ impl Loader {
             Type::Bool => {
                 *count += 1;
                 MoveTypeLayout::Bool
-            },
+            }
             Type::U8 => {
                 *count += 1;
                 MoveTypeLayout::U8
-            },
+            }
             Type::U16 => {
                 *count += 1;
                 MoveTypeLayout::U16
-            },
+            }
             Type::U32 => {
                 *count += 1;
                 MoveTypeLayout::U32
-            },
+            }
             Type::U64 => {
                 *count += 1;
                 MoveTypeLayout::U64
-            },
+            }
             Type::U128 => {
                 *count += 1;
                 MoveTypeLayout::U128
-            },
+            }
             Type::U256 => {
                 *count += 1;
                 MoveTypeLayout::U256
-            },
+            }
             Type::Address => {
                 *count += 1;
                 MoveTypeLayout::Address
-            },
+            }
             Type::Signer => {
                 *count += 1;
                 MoveTypeLayout::Signer
-            },
+            }
             Type::Vector(ty) => {
                 *count += 1;
                 MoveTypeLayout::Vector(Box::new(self.type_to_type_layout_impl(
@@ -2916,23 +2916,23 @@ impl Loader {
                     count,
                     depth + 1,
                 )?))
-            },
+            }
             Type::Struct(gidx) => {
                 *count += 1;
                 MoveTypeLayout::Struct(self.struct_gidx_to_type_layout(*gidx, &[], count, depth)?)
-            },
+            }
             Type::StructInstantiation(gidx, ty_args) => {
                 *count += 1;
                 MoveTypeLayout::Struct(
                     self.struct_gidx_to_type_layout(*gidx, ty_args, count, depth)?,
                 )
-            },
+            }
             Type::Reference(_) | Type::MutableReference(_) | Type::TyParam(_) => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("no type layout for {:?}", ty)),
                 );
-            },
+            }
         })
     }
 
@@ -3027,7 +3027,7 @@ impl Loader {
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("no type layout for {:?}", ty)),
                 );
-            },
+            }
         })
     }
 

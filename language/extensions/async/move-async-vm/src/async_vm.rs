@@ -244,7 +244,7 @@ impl<'r, 'l> AsyncSession<'r, 'l> {
                         ext: native_extensions,
                     })
                 }
-            },
+            }
             Err(error) => Err(AsyncError { error, gas_used }),
         }
     }
@@ -338,7 +338,7 @@ impl<'r, 'l> AsyncSession<'r, 'l> {
                         ext: native_extensions,
                     })
                 }
-            },
+            }
             Err(error) => Err(AsyncError { error, gas_used }),
         }
     }

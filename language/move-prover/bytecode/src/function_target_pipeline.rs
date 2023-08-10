@@ -44,7 +44,7 @@ impl std::fmt::Display for VerificationFlavor {
             VerificationFlavor::Regular => write!(f, ""),
             VerificationFlavor::Instantiated(index) => {
                 write!(f, "instantiated_{}", index)
-            },
+            }
             VerificationFlavor::Inconsistency(flavor) => write!(f, "inconsistency_{}", flavor),
         }
     }
@@ -396,7 +396,7 @@ impl FunctionTargetPipeline {
                 None => (),
                 Some(scc) => {
                     scc_staging.insert(scc, vec![]);
-                },
+                }
             }
         }
 
@@ -436,7 +436,7 @@ impl FunctionTargetPipeline {
                     (false, false) => {
                         // Put functions with 0 calls first in line, at the end of the vector
                         callees2.len().cmp(&callees1.len())
-                    },
+                    }
                 }
             });
 
@@ -451,22 +451,22 @@ impl FunctionTargetPipeline {
                     // case 1: non-recursive call
                     assert!(callees.is_empty());
                     dep_ordered.push(Either::Left(call_id));
-                },
+                }
                 Some(scc) => {
                     // case 2: recursive call group
                     match scc_staging.entry(scc) {
                         MapEntry::Vacant(_) => {
                             panic!("all scc groups should be in staging")
-                        },
+                        }
                         MapEntry::Occupied(mut entry) => {
                             let scc_vec = entry.get_mut();
                             scc_vec.push(call_id);
                             if scc_vec.len() == scc.len() {
                                 dep_ordered.push(Either::Right(entry.remove()));
                             }
-                        },
+                        }
                     }
-                },
+                }
             }
 
             // update the worklist
@@ -508,7 +508,7 @@ impl FunctionTargetPipeline {
                         Either::Left(fid) => {
                             let func_env = env.get_function(*fid);
                             targets.process(&func_env, processor.as_ref(), None);
-                        },
+                        }
                         Either::Right(scc) => 'fixedpoint: loop {
                             let scc_env: Vec<_> =
                                 scc.iter().map(|fid| env.get_function(*fid)).collect();
@@ -591,11 +591,14 @@ impl FunctionTargetPipeline {
         targets: &FunctionTargetsHolder,
         processor: &dyn FunctionTargetProcessor,
     ) -> String {
-        let mut dump = format!("{}", ProcessorResultDisplay {
-            env,
-            targets,
-            processor,
-        });
+        let mut dump = format!(
+            "{}",
+            ProcessorResultDisplay {
+                env,
+                targets,
+                processor,
+            }
+        );
         if !processor.is_single_run() {
             if !dump.is_empty() {
                 dump = format!("\n\n{}", dump);

@@ -391,7 +391,7 @@ impl Container {
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message("cannot copy a Locals container".to_string()),
                 )
-            },
+            }
         })
     }
 
@@ -488,7 +488,7 @@ impl ValueImpl {
             | (IndexedRef(_), _) => {
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
                     .with_message(format!("cannot compare values: {:?}, {:?}", self, other)))
-            },
+            }
         };
 
         Ok(res)
@@ -513,7 +513,7 @@ impl Container {
                     }
                 }
                 true
-            },
+            }
             (VecU8(l), VecU8(r)) => l.borrow().eq(&*r.borrow()),
             (VecU16(l), VecU16(r)) => l.borrow().eq(&*r.borrow()),
             (VecU32(l), VecU32(r)) => l.borrow().eq(&*r.borrow()),
@@ -540,7 +540,7 @@ impl Container {
                         self, other
                     )),
                 )
-            },
+            }
         };
 
         Ok(res)
@@ -584,59 +584,59 @@ impl IndexedRef {
             // Equality between a generic and a specialized container.
             (Locals(r1), VecU8(r2)) | (Struct(r1), VecU8(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<u8>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecU8(r1), Locals(r2)) | (VecU8(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<u8>()?
-            },
+            }
 
             (Locals(r1), VecU16(r2)) | (Struct(r1), VecU16(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<u16>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecU16(r1), Locals(r2)) | (VecU16(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<u16>()?
-            },
+            }
 
             (Locals(r1), VecU32(r2)) | (Struct(r1), VecU32(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<u32>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecU32(r1), Locals(r2)) | (VecU32(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<u32>()?
-            },
+            }
 
             (Locals(r1), VecU64(r2)) | (Struct(r1), VecU64(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<u64>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecU64(r1), Locals(r2)) | (VecU64(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<u64>()?
-            },
+            }
 
             (Locals(r1), VecU128(r2)) | (Struct(r1), VecU128(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<u128>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecU128(r1), Locals(r2)) | (VecU128(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<u128>()?
-            },
+            }
 
             (Locals(r1), VecU256(r2)) | (Struct(r1), VecU256(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<u256::U256>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecU256(r1), Locals(r2)) | (VecU256(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<u256::U256>()?
-            },
+            }
 
             (Locals(r1), VecBool(r2)) | (Struct(r1), VecBool(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<bool>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecBool(r1), Locals(r2)) | (VecBool(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<bool>()?
-            },
+            }
 
             (Locals(r1), VecAddress(r2)) | (Struct(r1), VecAddress(r2)) => {
                 *r1.borrow()[self.idx].as_value_ref::<AccountAddress>()? == r2.borrow()[other.idx]
-            },
+            }
             (VecAddress(r1), Locals(r2)) | (VecAddress(r1), Struct(r2)) => {
                 r1.borrow()[self.idx] == *r2.borrow()[other.idx].as_value_ref::<AccountAddress>()?
-            },
+            }
 
             // All other combinations are illegal.
             (Vec(_), _)
@@ -650,7 +650,7 @@ impl IndexedRef {
             | (VecAddress(_), _) => {
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
                     .with_message(format!("cannot compare references {:?}, {:?}", self, other)))
-            },
+            }
         };
         Ok(res)
     }
@@ -740,7 +740,7 @@ impl ContainerRef {
                                 .with_message(
                                     "failed to write_ref: container type mismatch".to_string(),
                                 ))
-                            },
+                            }
                         };
                         *$r1.borrow_mut() = take_unique_ownership(r)?;
                     }};
@@ -762,10 +762,10 @@ impl ContainerRef {
                             StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR,
                         )
                         .with_message("cannot overwrite Container::Locals".to_string()))
-                    },
+                    }
                 }
                 self.mark_dirty();
-            },
+            }
             _ => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
@@ -774,7 +774,7 @@ impl ContainerRef {
                             v, self
                         )),
                 )
-            },
+            }
         }
         Ok(())
     }
@@ -794,7 +794,7 @@ impl IndexedRef {
                             x, self
                         )),
                 )
-            },
+            }
             _ => (),
         }
 
@@ -802,7 +802,7 @@ impl IndexedRef {
             (Container::Locals(r), _) | (Container::Vec(r), _) | (Container::Struct(r), _) => {
                 let mut v = r.borrow_mut();
                 v[self.idx] = x.0;
-            },
+            }
             (Container::VecU8(r), ValueImpl::U8(x)) => r.borrow_mut()[self.idx] = *x,
             (Container::VecU16(r), ValueImpl::U16(x)) => r.borrow_mut()[self.idx] = *x,
             (Container::VecU32(r), ValueImpl::U32(x)) => r.borrow_mut()[self.idx] = *x,
@@ -826,7 +826,7 @@ impl IndexedRef {
                         x, self
                     )),
                 )
-            },
+            }
         }
         self.container_ref.mark_dirty();
         Ok(())
@@ -885,13 +885,13 @@ impl ContainerRef {
                             },
                         };
                         ValueImpl::ContainerRef(r)
-                    },
+                    }
                     _ => ValueImpl::IndexedRef(IndexedRef {
                         idx,
                         container_ref: self.copy_value(),
                     }),
                 }
-            },
+            }
 
             Container::VecU8(_)
             | Container::VecU16(_)
@@ -1012,7 +1012,7 @@ impl Locals {
                     }
                 }
                 Ok(Value(std::mem::replace(v, x.0)))
-            },
+            }
             None => Err(
                 PartialVMError::new(StatusCode::VERIFIER_INVARIANT_VIOLATION).with_message(
                     format!("local index out of bounds: got {}, len: {}", idx, v.len()),
@@ -1052,7 +1052,7 @@ impl Locals {
                 ValueImpl::Invalid => (),
                 ValueImpl::ContainerRef(_) | ValueImpl::IndexedRef(_) => {
                     locals[idx] = ValueImpl::Invalid;
-                },
+                }
                 _ => res.push((
                     idx,
                     Value(std::mem::replace(&mut locals[idx], ValueImpl::Invalid)),
@@ -1313,7 +1313,7 @@ impl VMValueCast<Vec<Value>> for Value {
         match self.0 {
             ValueImpl::Container(Container::Vec(c)) => {
                 Ok(take_unique_ownership(c)?.into_iter().map(Value).collect())
-            },
+            }
             ValueImpl::Address(_)
             | ValueImpl::Bool(_)
             | ValueImpl::U8(_)
@@ -1463,7 +1463,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot add {:?} and {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         };
         res.ok_or_else(|| PartialVMError::new(StatusCode::ARITHMETIC_ERROR))
     }
@@ -1480,7 +1480,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot sub {:?} from {:?}", r, l);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         };
         res.ok_or_else(|| PartialVMError::new(StatusCode::ARITHMETIC_ERROR))
     }
@@ -1497,7 +1497,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot mul {:?} and {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         };
         res.ok_or_else(|| PartialVMError::new(StatusCode::ARITHMETIC_ERROR))
     }
@@ -1514,7 +1514,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot div {:?} by {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         };
         res.ok_or_else(|| PartialVMError::new(StatusCode::ARITHMETIC_ERROR))
     }
@@ -1531,7 +1531,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot rem {:?} by {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         };
         res.ok_or_else(|| PartialVMError::new(StatusCode::ARITHMETIC_ERROR))
     }
@@ -1548,7 +1548,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot bit_or {:?} and {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1564,7 +1564,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot bit_and {:?} and {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1580,7 +1580,7 @@ impl IntegerValue {
             (l, r) => {
                 let msg = format!("Cannot bit_xor {:?} and {:?}", l, r);
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1593,31 +1593,31 @@ impl IntegerValue {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U8(x << n_bits)
-            },
+            }
             U16(x) => {
                 if n_bits >= 16 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U16(x << n_bits)
-            },
+            }
             U32(x) => {
                 if n_bits >= 32 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U32(x << n_bits)
-            },
+            }
             U64(x) => {
                 if n_bits >= 64 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U64(x << n_bits)
-            },
+            }
             U128(x) => {
                 if n_bits >= 128 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U128(x << n_bits)
-            },
+            }
             U256(x) => IntegerValue::U256(x << n_bits),
         })
     }
@@ -1631,31 +1631,31 @@ impl IntegerValue {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U8(x >> n_bits)
-            },
+            }
             U16(x) => {
                 if n_bits >= 16 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U16(x >> n_bits)
-            },
+            }
             U32(x) => {
                 if n_bits >= 32 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U32(x >> n_bits)
-            },
+            }
             U64(x) => {
                 if n_bits >= 64 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U64(x >> n_bits)
-            },
+            }
             U128(x) => {
                 if n_bits >= 128 {
                     return Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR));
                 }
                 IntegerValue::U128(x >> n_bits)
-            },
+            }
             U256(x) => IntegerValue::U256(x >> n_bits),
         })
     }
@@ -1676,7 +1676,7 @@ impl IntegerValue {
                     l, r
                 );
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1696,7 +1696,7 @@ impl IntegerValue {
                     l, r
                 );
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1716,7 +1716,7 @@ impl IntegerValue {
                     l, r
                 );
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1736,7 +1736,7 @@ impl IntegerValue {
                     l, r
                 );
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(msg));
-            },
+            }
         })
     }
 
@@ -1767,7 +1767,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u8)
                 }
-            },
+            }
             U32(x) => {
                 if x > (std::u8::MAX as u32) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1775,7 +1775,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u8)
                 }
-            },
+            }
             U64(x) => {
                 if x > (std::u8::MAX as u64) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1783,7 +1783,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u8)
                 }
-            },
+            }
             U128(x) => {
                 if x > (std::u8::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1791,7 +1791,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u8)
                 }
-            },
+            }
             U256(x) => {
                 if x > (u256::U256::from(std::u8::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1799,7 +1799,7 @@ impl IntegerValue {
                 } else {
                     Ok(x.unchecked_as_u8())
                 }
-            },
+            }
         }
     }
 
@@ -1816,7 +1816,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u16)
                 }
-            },
+            }
             U64(x) => {
                 if x > (std::u16::MAX as u64) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1824,7 +1824,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u16)
                 }
-            },
+            }
             U128(x) => {
                 if x > (std::u16::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1832,7 +1832,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u16)
                 }
-            },
+            }
             U256(x) => {
                 if x > (u256::U256::from(std::u16::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1840,7 +1840,7 @@ impl IntegerValue {
                 } else {
                     Ok(x.unchecked_as_u16())
                 }
-            },
+            }
         }
     }
 
@@ -1858,7 +1858,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u32)
                 }
-            },
+            }
             U128(x) => {
                 if x > (std::u32::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1866,7 +1866,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u32)
                 }
-            },
+            }
             U256(x) => {
                 if x > (u256::U256::from(std::u32::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1874,7 +1874,7 @@ impl IntegerValue {
                 } else {
                     Ok(x.unchecked_as_u32())
                 }
-            },
+            }
         }
     }
 
@@ -1893,7 +1893,7 @@ impl IntegerValue {
                 } else {
                     Ok(x as u64)
                 }
-            },
+            }
             U256(x) => {
                 if x > (u256::U256::from(std::u64::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
@@ -1901,7 +1901,7 @@ impl IntegerValue {
                 } else {
                     Ok(x.unchecked_as_u64())
                 }
-            },
+            }
         }
     }
 
@@ -1921,7 +1921,7 @@ impl IntegerValue {
                 } else {
                     Ok(x.unchecked_as_u128())
                 }
-            },
+            }
         }
     }
 
@@ -2199,14 +2199,14 @@ impl Vector {
                 Value(ValueImpl::Container(Container::Vec(Rc::new(RefCell::new(
                     elements.into_iter().map(|v| v.0).collect(),
                 )))))
-            },
+            }
 
             Type::Reference(_) | Type::MutableReference(_) | Type::TyParam(_) => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("invalid type param for vector: {:?}", type_param)),
                 )
-            },
+            }
         };
 
         Ok(container)
@@ -2312,28 +2312,28 @@ impl Container {
         match self {
             Self::Locals(r) | Self::Vec(r) | Self::Struct(r) => {
                 Struct::legacy_size_impl(&r.borrow())
-            },
+            }
             Self::VecU8(r) => {
                 AbstractMemorySize::new((r.borrow().len() * std::mem::size_of::<u8>()) as u64)
-            },
+            }
             Self::VecU16(r) => {
                 AbstractMemorySize::new((r.borrow().len() * std::mem::size_of::<u16>()) as u64)
-            },
+            }
             Self::VecU32(r) => {
                 AbstractMemorySize::new((r.borrow().len() * std::mem::size_of::<u32>()) as u64)
-            },
+            }
             Self::VecU64(r) => {
                 AbstractMemorySize::new((r.borrow().len() * std::mem::size_of::<u64>()) as u64)
-            },
+            }
             Self::VecU128(r) => {
                 AbstractMemorySize::new((r.borrow().len() * std::mem::size_of::<u128>()) as u64)
-            },
+            }
             Self::VecU256(r) => AbstractMemorySize::new(
                 (r.borrow().len() * std::mem::size_of::<u256::U256>()) as u64,
             ),
             Self::VecBool(r) => {
                 AbstractMemorySize::new((r.borrow().len() * std::mem::size_of::<bool>()) as u64)
-            },
+            }
             Self::VecAddress(r) => AbstractMemorySize::new(
                 (r.borrow().len() * std::mem::size_of::<AccountAddress>()) as u64,
             ),
@@ -2363,7 +2363,7 @@ impl ValueImpl {
         match self {
             Invalid | U8(_) | U16(_) | U32(_) | U64(_) | U128(_) | U256(_) | Bool(_) => {
                 LEGACY_CONST_SIZE
-            },
+            }
             Address(_) => AbstractMemorySize::new(AccountAddress::LENGTH as u64),
             ContainerRef(r) => r.legacy_size(),
             IndexedRef(r) => r.legacy_size(),
@@ -2449,7 +2449,7 @@ impl GlobalValueImpl {
             ValueImpl::Container(Container::Struct(fields)) => {
                 let status = Rc::new(RefCell::new(status));
                 Ok(Self::Cached { fields, status })
-            },
+            }
             val => Err((
                 PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                     .with_message("failed to publish cached: not a resource".to_string()),
@@ -2473,7 +2473,7 @@ impl GlobalValueImpl {
         let fields = match self {
             Self::None | Self::Deleted => {
                 return Err(PartialVMError::new(StatusCode::MISSING_DATA))
-            },
+            }
             Self::Fresh { .. } => match std::mem::replace(self, Self::None) {
                 Self::Fresh { fields } => fields,
                 _ => unreachable!(),
@@ -2499,7 +2499,7 @@ impl GlobalValueImpl {
                     PartialVMError::new(StatusCode::RESOURCE_ALREADY_EXISTS),
                     val,
                 ))
-            },
+            }
             Self::None => *self = Self::fresh(val)?,
             Self::Deleted => *self = Self::cached(val, GlobalDataStatus::Dirty)?,
         }
@@ -2532,11 +2532,11 @@ impl GlobalValueImpl {
             Self::Deleted => Some(Op::Delete),
             Self::Fresh { fields } => {
                 Some(Op::New(ValueImpl::Container(Container::Struct(fields))))
-            },
+            }
             Self::Cached { fields, status } => match &*status.borrow() {
                 GlobalDataStatus::Dirty => {
                     Some(Op::Modify(ValueImpl::Container(Container::Struct(fields))))
-                },
+                }
                 GlobalDataStatus::Clean => None,
             },
         }
@@ -2702,7 +2702,7 @@ impl Display for Container {
         match self {
             Self::Locals(r) | Self::Vec(r) | Self::Struct(r) => {
                 display_list_of_items(r.borrow().iter(), f)
-            },
+            }
             Self::VecU8(r) => display_list_of_items(r.borrow().iter(), f),
             Self::VecU16(r) => display_list_of_items(r.borrow().iter(), f),
             Self::VecU32(r) => display_list_of_items(r.borrow().iter(), f),
@@ -2832,7 +2832,7 @@ pub mod debug {
 
             Container::Struct(r) => {
                 print_list(buf, "{ ", r.borrow().iter(), print_value_impl, " }")
-            },
+            }
 
             Container::VecU8(r) => print_list(buf, "[", r.borrow().iter(), print_u8, "]"),
             Container::VecU16(r) => print_list(buf, "[", r.borrow().iter(), print_u16, "]"),
@@ -2874,7 +2874,7 @@ pub mod debug {
         match r.container_ref.container() {
             Container::Locals(r) | Container::Vec(r) | Container::Struct(r) => {
                 print_slice_elem(buf, &r.borrow(), idx, print_value_impl)
-            },
+            }
 
             Container::VecU8(r) => print_slice_elem(buf, &r.borrow(), idx, print_u8),
             Container::VecU16(r) => print_slice_elem(buf, &r.borrow(), idx, print_u16),
@@ -2992,7 +2992,7 @@ impl<'a, 'b> serde::Serialize for AnnotatedValue<'a, 'b, MoveTypeLayout, ValueIm
                     val: &*r.borrow(),
                 })
                 .serialize(serializer)
-            },
+            }
 
             (MoveTypeLayout::Vector(layout), ValueImpl::Container(c)) => {
                 let layout = &**layout;
@@ -3003,16 +3003,16 @@ impl<'a, 'b> serde::Serialize for AnnotatedValue<'a, 'b, MoveTypeLayout, ValueIm
                     (MoveTypeLayout::U64, Container::VecU64(r)) => r.borrow().serialize(serializer),
                     (MoveTypeLayout::U128, Container::VecU128(r)) => {
                         r.borrow().serialize(serializer)
-                    },
+                    }
                     (MoveTypeLayout::U256, Container::VecU256(r)) => {
                         r.borrow().serialize(serializer)
-                    },
+                    }
                     (MoveTypeLayout::Bool, Container::VecBool(r)) => {
                         r.borrow().serialize(serializer)
-                    },
+                    }
                     (MoveTypeLayout::Address, Container::VecAddress(r)) => {
                         r.borrow().serialize(serializer)
-                    },
+                    }
 
                     (_, Container::Vec(r)) => {
                         let v = r.borrow();
@@ -3021,14 +3021,14 @@ impl<'a, 'b> serde::Serialize for AnnotatedValue<'a, 'b, MoveTypeLayout, ValueIm
                             t.serialize_element(&AnnotatedValue { layout, val })?;
                         }
                         t.end()
-                    },
+                    }
 
                     (layout, container) => Err(invariant_violation::<S>(format!(
                         "cannot serialize container {:?} as {:?}",
                         container, layout
                     ))),
                 }
-            },
+            }
 
             (MoveTypeLayout::Signer, ValueImpl::Container(Container::Struct(r))) => {
                 let v = r.borrow();
@@ -3043,7 +3043,7 @@ impl<'a, 'b> serde::Serialize for AnnotatedValue<'a, 'b, MoveTypeLayout, ValueIm
                     val: &v[0],
                 })
                 .serialize(serializer)
-            },
+            }
 
             (ty, val) => Err(invariant_violation::<S>(format!(
                 "cannot serialize value {:?} as {:?}",
@@ -3110,25 +3110,25 @@ impl<'d> serde::de::DeserializeSeed<'d> for SeedWrapper<&MoveTypeLayout> {
                 let container = match &**layout {
                     L::U8 => {
                         Container::VecU8(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::U16 => {
                         Container::VecU16(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::U32 => {
                         Container::VecU32(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::U64 => {
                         Container::VecU64(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::U128 => {
                         Container::VecU128(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::U256 => {
                         Container::VecU256(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::Bool => {
                         Container::VecBool(Rc::new(RefCell::new(Vec::deserialize(deserializer)?)))
-                    },
+                    }
                     L::Address => Container::VecAddress(Rc::new(RefCell::new(Vec::deserialize(
                         deserializer,
                     )?))),
@@ -3136,10 +3136,10 @@ impl<'d> serde::de::DeserializeSeed<'d> for SeedWrapper<&MoveTypeLayout> {
                         let v = deserializer
                             .deserialize_seq(VectorElementVisitor(SeedWrapper { layout }))?;
                         Container::Vec(Rc::new(RefCell::new(v)))
-                    },
+                    }
                 };
                 Ok(Value(ValueImpl::Container(container)))
-            },
+            }
         }
     }
 }
@@ -3274,7 +3274,7 @@ impl Container {
                         val.visit_impl(visitor, depth + 1);
                     }
                 }
-            },
+            }
             Struct(r) => {
                 let r = r.borrow();
                 if visitor.visit_struct(depth, r.len()) {
@@ -3282,7 +3282,7 @@ impl Container {
                         val.visit_impl(visitor, depth + 1);
                     }
                 }
-            },
+            }
             VecU8(r) => visitor.visit_vec_u8(depth, &r.borrow()),
             VecU16(r) => visitor.visit_vec_u16(depth, &r.borrow()),
             VecU32(r) => visitor.visit_vec_u32(depth, &r.borrow()),
@@ -3668,7 +3668,7 @@ impl ValueImpl {
                     fields.push(v.as_move_value(field_layout));
                 }
                 MoveValue::Struct(MoveStruct::new(fields))
-            },
+            }
 
             (L::Vector(inner_layout), ValueImpl::Container(c)) => MoveValue::Vector(match c {
                 Container::VecU8(r) => r.borrow().iter().map(|u| MoveValue::U8(*u)).collect(),
@@ -3680,7 +3680,7 @@ impl ValueImpl {
                 Container::VecBool(r) => r.borrow().iter().map(|u| MoveValue::Bool(*u)).collect(),
                 Container::VecAddress(r) => {
                     r.borrow().iter().map(|u| MoveValue::Address(*u)).collect()
-                },
+                }
                 Container::Vec(r) => r
                     .borrow()
                     .iter()
@@ -3688,7 +3688,7 @@ impl ValueImpl {
                     .collect(),
                 Container::Struct(_) => {
                     panic!("got struct container when converting vec")
-                },
+                }
                 Container::Locals(_) => panic!("got locals container when converting vec"),
             }),
 
@@ -3701,7 +3701,7 @@ impl ValueImpl {
                     ValueImpl::Address(a) => MoveValue::Signer(*a),
                     v => panic!("Unexpected non-address while converting signer: {:?}", v),
                 }
-            },
+            }
 
             (layout, val) => panic!("Cannot convert value {:?} as {:?}", val, layout),
         }

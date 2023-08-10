@@ -34,10 +34,10 @@ use crate::{
     cli::Args,
     stackless::{extensions::*, llvm, module_context::ModuleContext, rttydesc::RttyContext},
 };
-use move_core_types::account_address::{AccountAddress};
 use chrono::Local as ChronoLocal;
 use env_logger::fmt::Color;
 use log::{debug, Level};
+use move_core_types::account_address::AccountAddress;
 use move_core_types::{account_address, u256::U256, vm_status::StatusCode::ARITHMETIC_ERROR};
 use move_model::{ast as mast, model as mm, ty as mty};
 use move_stackless_bytecode::{
@@ -304,7 +304,9 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     let addr_str = addr_val.unwrap().to_string();
                     let addr_ac = AccountAddress::from_hex_literal(&addr_str).unwrap();
                     let c = self.constant(
-                        &sbc::Constant::Address(move_model::ast::Address::Numerical(addr_ac)), None);
+                        &sbc::Constant::Address(move_model::ast::Address::Numerical(addr_ac)),
+                        None,
+                    );
                     self.module_cx
                         .llvm_builder
                         .build_store(c.as_any_value(), local.llval);

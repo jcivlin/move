@@ -10,10 +10,7 @@ use move_package::{
         layout::SourcePackageLayout,
         manifest_parser,
         manifest_parser::{parse_move_manifest_string, parse_source_manifest},
-        parsed_manifest::{
-            Dependencies, Dependency, PackageName,
-            SourceManifest,
-        },
+        parsed_manifest::{Dependencies, Dependency, PackageName, SourceManifest},
     },
     Architecture, BuildConfig,
 };
@@ -195,7 +192,7 @@ fn parse_package_manifest(
             let source_package: SourceManifest =
                 parse_move_manifest_string(contents).and_then(parse_source_manifest)?;
             Ok((source_package, root_path))
-        },
+        }
         Err(_) => Err(anyhow::format_err!(
             "Unable to find package manifest for '{}' at {:?}",
             dep_name,
