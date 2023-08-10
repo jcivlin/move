@@ -165,7 +165,6 @@ pub fn download_dependency_repos(
     };
 
     for (dep_name, dep) in manifest.dependencies.iter().chain(additional_deps.iter()) {
-        download_and_update_if_remote(*dep_name, dep, build_config.skip_fetch_latest_git_deps)?;
         let (dep_manifest, root_path_from_manifest) =
             parse_package_manifest(dep, dep_name, root_path.clone())
                 .with_context(|| format!("While processing dependency '{}'", *dep_name))?;
@@ -198,17 +197,6 @@ fn parse_package_manifest(
             dep_name,
             SourcePackageLayout::Manifest.path().join(root_path),
         )),
-    }
-}
-
-// Note: for full dependency processing see same function in move-package
-fn download_and_update_if_remote(
-    _dep_name: PackageName,
-    dep: &Dependency,
-    _skip_fetch_latest_git_deps: bool,
-) -> Result<()> {
-    match &dep.local {
-        _ => Ok(()),
     }
 }
 
