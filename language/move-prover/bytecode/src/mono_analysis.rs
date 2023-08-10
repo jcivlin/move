@@ -5,20 +5,19 @@
 //! Analysis which computes information needed in backends for monomorphization. This
 //! computes the distinct type instantiations in the model for structs and inlined functions.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    rc::Rc,
+use crate::{
+    function_target::FunctionTarget,
+    function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
+    stackless_bytecode::{BorrowEdge, Bytecode, Operation},
+    usage_analysis::UsageProcessor,
 };
-
 use itertools::Itertools;
-
 use move_model::{
     ast,
     ast::{Condition, ConditionKind, ExpData},
     model::{
-        FunId, GlobalEnv, ModuleId, QualifiedId, QualifiedInstId, SpecFunId, SpecVarId, StructEnv,
-        StructId,
+        FunId, GlobalEnv, ModuleId, Parameter, QualifiedId, QualifiedInstId, SpecFunId, SpecVarId,
+        StructEnv, StructId,
     },
     pragmas::INTRINSIC_TYPE_MAP,
     ty::{Type, TypeDisplayContext, TypeInstantiationDerivation, TypeUnificationAdapter, Variance},
@@ -27,12 +26,10 @@ use move_model::{
         TYPE_NAME_SPEC, TYPE_SPEC_IS_STRUCT,
     },
 };
-
-use crate::{
-    function_target::FunctionTarget,
-    function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
-    stackless_bytecode::{BorrowEdge, Bytecode, Operation},
-    usage_analysis::UsageProcessor,
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    rc::Rc,
 };
 
 /// The environment extension computed by this analysis.
@@ -88,10 +85,7 @@ impl FunctionTargetProcessor for MonoAnalysisProcessor {
         let info = env
             .get_extension::<MonoInfo>()
             .expect("monomorphization analysis not run");
-        let tctx = TypeDisplayContext::WithEnv {
-            env,
-            type_param_names: None,
-        };
+        let tctx = TypeDisplayContext::new(env);
         let display_inst = |tys: &[Type]| {
             tys.iter()
                 .map(|ty| ty.display(&tctx).to_string())
@@ -199,6 +193,9 @@ impl<'a> Analyzer<'a> {
         // in self.todo_targets for later analysis. During this phase, self.inst_opt is None.
         for module in self.env.get_modules() {
             for fun in module.get_functions() {
+                if fun.is_inline() {
+                    continue;
+                }
                 for (variant, target) in self.targets.get_targets(&fun) {
                     if !variant.is_verified() {
                         continue;
@@ -293,7 +290,7 @@ impl<'a> Analyzer<'a> {
                                 "axioms cannot have more than two type parameters",
                             );
                             vec![]
-                        }
+                        },
                     };
                     axioms.push((cond.clone(), type_insts));
                 }
@@ -413,7 +410,7 @@ impl<'a> Analyzer<'a> {
                         self.todo_funs.push(entry);
                     }
                 }
-            }
+            },
             Call(_, _, WriteBack(_, edge), ..) => {
                 // In very rare occasions, not all types used in the function can appear in
                 // function parameters, locals, and return values. Types hidden in the write-back
@@ -422,14 +419,14 @@ impl<'a> Analyzer<'a> {
                 //
                 // TODO(mengxu): need to revisit this once the modeling for dynamic borrow is done
                 self.add_types_in_borrow_edge(edge)
-            }
+            },
             Prop(_, _, exp) => self.analyze_exp(exp),
             SaveMem(_, _, mem) => {
                 let mem = self.instantiate_mem(mem.to_owned());
                 let struct_env = self.env.get_struct_qid(mem.to_qualified_id());
                 self.add_struct(struct_env, &mem.inst);
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -455,7 +452,7 @@ impl<'a> Analyzer<'a> {
     fn analyze_spec_fun(&mut self, fun: QualifiedId<SpecFunId>) {
         let module_env = self.env.get_module(fun.module_id);
         let decl = module_env.get_spec_fun(fun.id);
-        for (_, ty) in &decl.params {
+        for Parameter(_, ty) in &decl.params {
             self.add_type_root(ty)
         }
         self.add_type_root(&decl.result_type);
@@ -538,14 +535,14 @@ impl<'a> Analyzer<'a> {
         ty.visit(&mut |t| match t {
             Type::Vector(et) => {
                 self.info.vec_inst.insert(et.as_ref().clone());
-            }
+            },
             Type::Struct(mid, sid, targs) => {
                 self.add_struct(self.env.get_module(*mid).into_struct(*sid), targs)
-            }
+            },
             Type::TypeParameter(idx) => {
                 self.info.type_params.insert(*idx);
-            }
-            _ => {}
+            },
+            _ => {},
         });
     }
 
@@ -556,7 +553,7 @@ impl<'a> Analyzer<'a> {
                 .entry(struct_.get_qualified_id())
                 .or_default()
                 .insert((targs[0].clone(), targs[1].clone()));
-        } else if struct_.is_native_or_intrinsic() && !targs.is_empty() {
+        } else if struct_.is_intrinsic() && !targs.is_empty() {
             self.info
                 .native_inst
                 .entry(struct_.module_env.get_id())
@@ -582,12 +579,12 @@ impl<'a> Analyzer<'a> {
             BorrowEdge::Direct | BorrowEdge::Index(_) => (),
             BorrowEdge::Field(qid, _) => {
                 self.add_type_root(&qid.to_type());
-            }
+            },
             BorrowEdge::Hyper(edges) => {
                 for item in edges {
                     self.add_types_in_borrow_edge(item);
                 }
-            }
+            },
         }
     }
 }

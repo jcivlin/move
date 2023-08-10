@@ -114,6 +114,7 @@ module std::fixed_point32 {
         FixedPoint32 { value: (quotient as u64) }
     }
     spec create_from_rational {
+        pragma verify = false; // TIMEOUT
         pragma opaque;
         include CreateFromRationalAbortsIf;
         ensures result == spec_create_from_rational(numerator, denominator);
@@ -244,6 +245,7 @@ module std::fixed_point32 {
         (val >> 32 as u64)
     }
     spec ceil {
+        pragma verify = false; // timeout
         pragma opaque;
         aborts_if false;
         ensures result == spec_ceil(num);
@@ -270,6 +272,7 @@ module std::fixed_point32 {
     }
     spec round {
         pragma opaque;
+        pragma timeout = 120;
         aborts_if false;
         ensures result == spec_round(num);
     }

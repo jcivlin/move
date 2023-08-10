@@ -98,9 +98,10 @@ pub fn solc_yul(source: &str, return_optimized_yul: bool) -> Result<(Vec<u8>, Op
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    // (solana) this clippy failure mysteriously does not trigger upstream
-    #[allow(clippy::or_fun_call)]
-    let pipe = child.stdin.as_mut().ok_or(anyhow!("cannot create pipe"))?;
+    let pipe = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| anyhow!("cannot create pipe"))?;
     pipe.write_all(source.as_bytes())?;
     let out = child.wait_with_output()?;
     if !out.status.success() {

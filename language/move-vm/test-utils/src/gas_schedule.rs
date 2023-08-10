@@ -10,13 +10,14 @@
 use move_binary_format::{
     errors::{PartialVMError, PartialVMResult},
     file_format::{
-        Bytecode, ConstantPoolIndex, FieldHandleIndex, FieldInstantiationIndex,
+        Bytecode, CodeOffset, ConstantPoolIndex, FieldHandleIndex, FieldInstantiationIndex,
         FunctionHandleIndex, FunctionInstantiationIndex, SignatureIndex,
         StructDefInstantiationIndex, StructDefinitionIndex,
     },
     file_format_common::{instruction_key, Opcodes},
 };
 use move_core_types::{
+    account_address::AccountAddress,
     gas_algebra::{
         AbstractMemorySize, GasQuantity, InternalGas, InternalGasPerAbstractMemoryUnit,
         InternalGasUnit, NumArgs, NumBytes, ToUnit, ToUnitFractional,
@@ -45,8 +46,8 @@ impl ToUnit<InternalGasUnit> for GasUnit {
 }
 
 impl ToUnitFractional<GasUnit> for InternalGasUnit {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1000;
+    const NOMINATOR: u64 = 1;
 }
 
 /// The size in bytes for a non-string or address constant on the stack
@@ -160,11 +161,11 @@ impl<'a> GasStatus<'a> {
             Some(gas_left) => {
                 self.gas_left = gas_left;
                 Ok(())
-            }
+            },
             None => {
                 self.gas_left = InternalGas::new(0);
                 Err(PartialVMError::new(StatusCode::OUT_OF_GAS))
-            }
+            },
         }
     }
 
@@ -199,67 +200,6 @@ impl<'a> GasStatus<'a> {
     }
 }
 
-fn get_simple_instruction_opcode(instr: SimpleInstruction) -> Opcodes {
-    use Opcodes::*;
-    use SimpleInstruction::*;
-
-    match instr {
-        Nop => NOP,
-        Ret => RET,
-
-        BrTrue => BR_TRUE,
-        BrFalse => BR_FALSE,
-        Branch => BRANCH,
-
-        LdU8 => LD_U8,
-        LdU64 => LD_U64,
-        LdU128 => LD_U128,
-        LdTrue => LD_TRUE,
-        LdFalse => LD_FALSE,
-
-        FreezeRef => FREEZE_REF,
-        MutBorrowLoc => MUT_BORROW_LOC,
-        ImmBorrowLoc => IMM_BORROW_LOC,
-        ImmBorrowField => IMM_BORROW_FIELD,
-        MutBorrowField => MUT_BORROW_FIELD,
-        ImmBorrowFieldGeneric => IMM_BORROW_FIELD_GENERIC,
-        MutBorrowFieldGeneric => MUT_BORROW_FIELD_GENERIC,
-
-        CastU8 => CAST_U8,
-        CastU64 => CAST_U64,
-        CastU128 => CAST_U128,
-
-        Add => ADD,
-        Sub => SUB,
-        Mul => MUL,
-        Mod => MOD,
-        Div => DIV,
-
-        BitOr => BIT_OR,
-        BitAnd => BIT_AND,
-        Xor => XOR,
-        Shl => SHL,
-        Shr => SHR,
-
-        Or => OR,
-        And => AND,
-        Not => NOT,
-
-        Lt => LT,
-        Gt => GT,
-        Le => LE,
-        Ge => GE,
-
-        Abort => ABORT,
-        LdU16 => LD_U16,
-        LdU32 => LD_U32,
-        LdU256 => LD_U256,
-        CastU16 => CAST_U16,
-        CastU32 => CAST_U32,
-        CastU256 => CAST_U256,
-    }
-}
-
 impl<'b> GasMeter for GasStatus<'b> {
     fn balance_internal(&self) -> InternalGas {
         self.gas_left
@@ -267,7 +207,19 @@ impl<'b> GasMeter for GasStatus<'b> {
 
     /// Charge an instruction and fail if not enough gas units are left.
     fn charge_simple_instr(&mut self, instr: SimpleInstruction) -> PartialVMResult<()> {
-        self.charge_instr(get_simple_instruction_opcode(instr))
+        self.charge_instr(instr.to_opcode())
+    }
+
+    fn charge_br_false(&mut self, _target_offset: Option<CodeOffset>) -> PartialVMResult<()> {
+        self.charge_instr(Opcodes::BR_FALSE)
+    }
+
+    fn charge_br_true(&mut self, _target_offset: Option<CodeOffset>) -> PartialVMResult<()> {
+        self.charge_instr(Opcodes::BR_TRUE)
+    }
+
+    fn charge_branch(&mut self, _target_offset: CodeOffset) -> PartialVMResult<()> {
+        self.charge_instr(Opcodes::BRANCH)
     }
 
     fn charge_pop(&mut self, _popped_val: impl ValueView) -> PartialVMResult<()> {
@@ -401,7 +353,10 @@ impl<'b> GasMeter for GasStatus<'b> {
 
     fn charge_load_resource(
         &mut self,
-        _loaded: Option<(NumBytes, impl ValueView)>,
+        _addr: AccountAddress,
+        _ty: impl TypeView,
+        _val: Option<impl ValueView>,
+        _bytes_loaded: NumBytes,
     ) -> PartialVMResult<()> {
         Ok(())
     }
@@ -508,11 +463,13 @@ impl<'b> GasMeter for GasStatus<'b> {
     ) -> PartialVMResult<()> {
         use Opcodes::*;
 
-        self.charge_instr(if is_mut {
-            VEC_MUT_BORROW
-        } else {
-            VEC_IMM_BORROW
-        })
+        self.charge_instr(
+            if is_mut {
+                VEC_MUT_BORROW
+            } else {
+                VEC_IMM_BORROW
+            },
+        )
     }
 
     fn charge_vec_push_back(

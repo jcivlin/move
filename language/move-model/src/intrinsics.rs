@@ -2,18 +2,15 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::BTreeMap, ops::Deref};
-
-use num::BigUint;
-
 use crate::{
-    ast::{Operation, PropertyBag, PropertyValue, QualifiedSymbol},
+    ast::{Address, Operation, PropertyBag, PropertyValue, QualifiedSymbol},
     builder::module_builder::SpecBlockContext,
     model::{IntrinsicId, QualifiedId, SpecFunId},
     pragmas::{INTRINSIC_PRAGMA, INTRINSIC_TYPE_MAP, INTRINSIC_TYPE_MAP_ASSOC_FUNCTIONS},
     symbol::{Symbol, SymbolPool},
     FunId, GlobalEnv, Loc, ModuleBuilder, StructId,
 };
+use std::{collections::BTreeMap, ops::Deref};
 
 /// An information pack that holds the intrinsic declaration
 #[derive(Clone, Debug)]
@@ -27,7 +24,7 @@ pub struct IntrinsicDecl {
 }
 
 impl IntrinsicDecl {
-    pub fn get_fun_triple(&self, env: &GlobalEnv, name: &str) -> Option<(BigUint, String, String)> {
+    pub fn get_fun_triple(&self, env: &GlobalEnv, name: &str) -> Option<(Address, String, String)> {
         let symbol_pool = env.symbol_pool();
         let sym = symbol_pool.make(name);
         self.intrinsic_to_move_fun
@@ -73,7 +70,7 @@ pub(crate) fn process_intrinsic_declaration(
         SpecBlockContext::Struct(qsym) => qsym.clone(),
         _ => {
             return;
-        }
+        },
     };
 
     // search for intrinsic declarations
@@ -83,7 +80,7 @@ pub(crate) fn process_intrinsic_declaration(
         None => {
             // this is not an intrinsic declaration
             return;
-        }
+        },
         Some(val) => {
             match val {
                 PropertyValue::Symbol(sym) => symbol_pool.string(*sym),
@@ -92,13 +89,13 @@ pub(crate) fn process_intrinsic_declaration(
                         .parent
                         .error(loc, "expect a boolean value or a valid intrinsic type");
                     return;
-                }
+                },
                 _ => {
                     // this is the true/false pragma
                     return;
-                }
+                },
             }
-        }
+        },
     };
 
     // obtain the associated functions map
@@ -109,7 +106,7 @@ pub(crate) fn process_intrinsic_declaration(
                 .parent
                 .error(loc, &format!("unknown intrinsic type: {}", target.as_str()));
             return;
-        }
+        },
     };
 
     // prepare the decl
@@ -147,14 +144,14 @@ fn populate_intrinsic_decl(
         let target_sym = match props.remove(&key_sym) {
             None => {
                 continue;
-            }
+            },
             Some(PropertyValue::Value(_)) => {
                 builder.parent.error(
                     loc,
                     &format!("invalid intrinsic function mapping: {}", name),
                 );
                 continue;
-            }
+            },
             Some(PropertyValue::Symbol(val_sym)) => val_sym,
             Some(PropertyValue::QualifiedSymbol(qual_sym)) => {
                 if qual_sym.module_name != builder.module_name {
@@ -163,13 +160,13 @@ fn populate_intrinsic_decl(
                         &format!(
                             "an intrinsic function mapping can only refer to functions \
                             declared in the same module while `{}` is not",
-                            qual_sym.display(symbol_pool)
+                            qual_sym.display(builder.parent.env)
                         ),
                     );
                     continue;
                 }
                 qual_sym.symbol
-            }
+            },
         };
         let qualified_sym = QualifiedSymbol {
             module_name: builder.module_name.clone(),
@@ -184,11 +181,11 @@ fn populate_intrinsic_decl(
                         loc,
                         &format!(
                             "unable to find move function for intrinsic mapping: {}",
-                            qualified_sym.display(symbol_pool)
+                            qualified_sym.display(builder.parent.env)
                         ),
                     );
                     continue;
-                }
+                },
                 Some(entry) => {
                     // TODO: in theory, we should also do some type checking on the function
                     // signature. This is implicitly done by Boogie right now, but we may want to
@@ -200,12 +197,12 @@ fn populate_intrinsic_decl(
                             loc,
                             &format!(
                                 "duplicated intrinsic mapping for move function: {}",
-                                qualified_sym.display(symbol_pool)
+                                qualified_sym.display(builder.parent.env)
                             ),
                         );
                         continue;
                     }
-                }
+                },
             }
         } else {
             match builder.parent.spec_fun_table.get(&qualified_sym) {
@@ -214,18 +211,18 @@ fn populate_intrinsic_decl(
                         loc,
                         &format!(
                             "unable to find spec function for intrinsic mapping: {}",
-                            qualified_sym.display(symbol_pool)
+                            qualified_sym.display(builder.parent.env)
                         ),
                     );
                     continue;
-                }
+                },
                 Some(entries) => {
                     if entries.len() != 1 {
                         builder.parent.error(
                             loc,
                             &format!(
                                 "unable to find a unique spec function for intrinsic mapping: {}",
-                                qualified_sym.display(symbol_pool)
+                                qualified_sym.display(builder.parent.env)
                             ),
                         );
                         continue;
@@ -243,13 +240,13 @@ fn populate_intrinsic_decl(
                                 loc,
                                 &format!(
                                     "duplicated intrinsic mapping for spec function: {}",
-                                    qualified_sym.display(symbol_pool)
+                                    qualified_sym.display(builder.parent.env)
                                 ),
                             );
                             continue;
                         }
                     }
-                }
+                },
             }
         }
     }

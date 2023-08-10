@@ -182,13 +182,13 @@ impl UnitTestingConfig {
         let compilation_env = compiler.compilation_env();
         let test_plan = unit_test::plan_builder::construct_test_plan(compilation_env, None, &cfgir);
 
-        if let Err(diags) =
-            compilation_env.check_diags_at_or_above_severity(if self.ignore_compile_warnings {
+        if let Err(diags) = compilation_env.check_diags_at_or_above_severity(
+            if self.ignore_compile_warnings {
                 Severity::NonblockingError
             } else {
                 Severity::Warning
-            })
-        {
+            },
+        ) {
             diagnostics::report_diagnostics(&files, diags);
         }
 
@@ -243,14 +243,11 @@ impl UnitTestingConfig {
         let mut test_runner = TestRunner::new(
             self.gas_limit.unwrap_or(DEFAULT_EXECUTION_BOUND),
             self.num_threads,
-            self.check_stackless_vm,
-            self.verbose,
             self.report_storage_on_error,
             self.report_stacktrace_on_abort,
             test_plan,
             native_function_table,
             cost_table,
-            verify_and_create_named_address_mapping(self.named_address_values.clone()).unwrap(),
             self.report_writeset,
             #[cfg(feature = "evm-backend")]
             self.evm,

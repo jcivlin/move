@@ -4,6 +4,7 @@
 
 use crate::{
     config::VMConfig,
+    data_cache::TransactionDataCache,
     logging::expect_no_verification_errors,
     native_functions::{NativeFunction, NativeFunctions, UnboxedNativeFunction},
     session::LoadedFunctionInstantiation,
@@ -25,18 +26,16 @@ use move_bytecode_verifier::{self, cyclic_dependencies, dependencies};
 use move_core_types::{
     identifier::{IdentStr, Identifier},
     language_storage::{ModuleId, StructTag, TypeTag},
-    metadata::Metadata,
     value::{MoveFieldLayout, MoveStructLayout, MoveTypeLayout},
     vm_status::StatusCode,
 };
-use move_vm_types::{
-    data_store::DataStore,
-    loaded_data::runtime_types::{CachedStructIndex, DepthFormula, StructType, Type},
+use move_vm_types::loaded_data::runtime_types::{
+    CachedStructIndex, DepthFormula, StructType, Type,
 };
 use parking_lot::RwLock;
 use sha3::{Digest, Sha3_256};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{btree_map, BTreeMap, BTreeSet, HashMap},
     fmt::Debug,
     hash::Hash,
     sync::Arc,
@@ -74,7 +73,8 @@ where
     }
 
     fn get(&self, key: &K) -> Option<&Arc<V>> {
-        self.id_map.get(key).and_then(|idx| self.binaries.get(*idx))
+        let index = self.id_map.get(key)?;
+        self.binaries.get(*index)
     }
 }
 
@@ -116,7 +116,7 @@ impl ScriptCache {
                     script.parameter_tys.clone(),
                     script.return_tys.clone(),
                 )
-            }
+            },
         }
     }
 }
@@ -188,7 +188,7 @@ impl ModuleCache {
                 self.functions
                     .truncate(self.functions.len() - function_count);
                 Err(err.finish(Location::Undefined))
-            }
+            },
         }
     }
 
@@ -223,7 +223,7 @@ impl ModuleCache {
                     // So in the spirit of not crashing we just leave it as None and
                     // log the issue.
                     error!("Arc<StructType> cannot have any live reference while publishing");
-                }
+                },
             }
         }
 
@@ -321,7 +321,7 @@ impl ModuleCache {
                     let mut struct_type = (*self.structs[struct_idx]).clone();
                     struct_type.fields = fields;
                     self.structs[struct_idx] = Arc::new(struct_type);
-                }
+                },
             }
             struct_idx += 1;
         }
@@ -397,15 +397,15 @@ impl ModuleCache {
             SignatureToken::Vector(inner_tok) => {
                 let inner_type = Self::make_type_internal(module, inner_tok, resolver)?;
                 Type::Vector(Box::new(inner_type))
-            }
+            },
             SignatureToken::Reference(inner_tok) => {
                 let inner_type = Self::make_type_internal(module, inner_tok, resolver)?;
                 Type::Reference(Box::new(inner_type))
-            }
+            },
             SignatureToken::MutableReference(inner_tok) => {
                 let inner_type = Self::make_type_internal(module, inner_tok, resolver)?;
                 Type::MutableReference(Box::new(inner_type))
-            }
+            },
             SignatureToken::Struct(sh_idx) => {
                 let struct_handle = module.struct_handle_at(*sh_idx);
                 let struct_name = module.identifier_at(struct_handle.name);
@@ -416,7 +416,7 @@ impl ModuleCache {
                 );
                 let def_idx = resolver(struct_name, &module_id)?;
                 Type::Struct(def_idx)
-            }
+            },
             SignatureToken::StructInstantiation(sh_idx, tys) => {
                 let type_parameters: Vec<_> = tys
                     .iter()
@@ -431,7 +431,7 @@ impl ModuleCache {
                 );
                 let def_idx = resolver(struct_name, &module_id)?;
                 Type::StructInstantiation(def_idx, type_parameters)
-            }
+            },
         };
         Ok(res)
     }
@@ -535,14 +535,14 @@ impl ModuleCache {
                 let mut inner = self.calculate_depth_of_type(ty, depth_cache)?;
                 inner.scale(1);
                 inner
-            }
+            },
             Type::TyParam(ty_idx) => DepthFormula::type_parameter(*ty_idx),
             Type::Struct(cache_idx) => {
                 let mut struct_formula = self.calculate_depth_of_struct(*cache_idx, depth_cache)?;
                 debug_assert!(struct_formula.terms.is_empty());
                 struct_formula.scale(1);
                 struct_formula
-            }
+            },
             Type::StructInstantiation(cache_idx, ty_args) => {
                 let ty_arg_map = ty_args
                     .iter()
@@ -556,7 +556,7 @@ impl ModuleCache {
                 let mut subst_struct_formula = struct_formula.subst(ty_arg_map)?;
                 subst_struct_formula.scale(1);
                 subst_struct_formula
-            }
+            },
         })
     }
 }
@@ -677,16 +677,6 @@ impl Loader {
         *self.invalidated.read()
     }
 
-    /// Copies metadata out of a modules bytecode if available.
-    pub(crate) fn get_metadata(&self, module: ModuleId, key: &[u8]) -> Option<Metadata> {
-        let cache = self.module_cache.read();
-        cache
-            .modules
-            .get(&module)
-            .and_then(|module| module.module.metadata.iter().find(|md| md.key == key))
-            .cloned()
-    }
-
     //
     // Script verification and loading
     //
@@ -703,7 +693,7 @@ impl Loader {
         &self,
         script_blob: &[u8],
         ty_args: &[TypeTag],
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
     ) -> VMResult<(Arc<Function>, LoadedFunctionInstantiation)> {
         // retrieve or load the script
         let mut sha3_256 = Sha3_256::new();
@@ -717,7 +707,7 @@ impl Loader {
                 let ver_script = self.deserialize_and_verify_script(script_blob, data_store)?;
                 let script = Script::new(ver_script, &hash_value, &self.module_cache.read())?;
                 scripts.insert(hash_value, script)
-            }
+            },
         };
 
         // verify type arguments
@@ -725,6 +715,19 @@ impl Loader {
         for ty in ty_args {
             type_arguments.push(self.load_type(ty, data_store)?);
         }
+
+        if self.vm_config.type_size_limit
+            && type_arguments
+                .iter()
+                .map(|loaded_ty| self.count_type_nodes(loaded_ty))
+                .sum::<u64>()
+                > MAX_TYPE_INSTANTIATION_NODES
+        {
+            return Err(
+                PartialVMError::new(StatusCode::TOO_MANY_TYPE_NODES).finish(Location::Script)
+            );
+        };
+
         self.verify_ty_args(main.type_parameters(), &type_arguments)
             .map_err(|e| e.finish(Location::Script))?;
         let instantiation = LoadedFunctionInstantiation {
@@ -742,7 +745,7 @@ impl Loader {
     fn deserialize_and_verify_script(
         &self,
         script: &[u8],
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
     ) -> VMResult<CompiledScript> {
         let script = match CompiledScript::deserialize_with_max_version(
             script,
@@ -750,12 +753,11 @@ impl Loader {
         ) {
             Ok(script) => script,
             Err(err) => {
-                error!("[VM] deserializer for script returned error: {:?}", err,);
-                let msg = format!("Deserialization error: {:?}", err);
+                let msg = format!("[VM] deserializer for script returned error: {:?}", err);
                 return Err(PartialVMError::new(StatusCode::CODE_DESERIALIZATION_ERROR)
                     .with_message(msg)
                     .finish(Location::Script));
-            }
+            },
         };
 
         match self.verify_script(&script) {
@@ -768,14 +770,8 @@ impl Loader {
                     .collect::<VMResult<_>>()?;
                 self.verify_script_dependencies(&script, loaded_deps)?;
                 Ok(script)
-            }
-            Err(err) => {
-                error!(
-                    "[VM] bytecode verifier returned errors for script: {:?}",
-                    err
-                );
-                Err(err)
-            }
+            },
+            Err(err) => Err(err),
         }
     }
 
@@ -803,16 +799,13 @@ impl Loader {
     // Module verification and loading
     //
 
-    // Entry point for function execution (`MoveVM::execute_function`).
     // Loading verifies the module if it was never loaded.
-    // Type parameters are checked as well after every type is loaded.
-    pub(crate) fn load_function(
+    fn load_function_without_type_args(
         &self,
         module_id: &ModuleId,
         function_name: &IdentStr,
-        ty_args: &[TypeTag],
-        data_store: &impl DataStore,
-    ) -> VMResult<(Arc<Module>, Arc<Function>, LoadedFunctionInstantiation)> {
+        data_store: &TransactionDataCache,
+    ) -> VMResult<(Arc<Module>, Arc<Function>, Vec<Type>, Vec<Type>)> {
         let module = self.load_module(module_id, data_store)?;
         let idx = self
             .module_cache
@@ -845,11 +838,158 @@ impl Loader {
             .collect::<PartialVMResult<Vec<_>>>()
             .map_err(|err| err.finish(Location::Undefined))?;
 
-        // verify type arguments
+        Ok((module, func, parameters, return_))
+    }
+
+    // Matches the actual returned type to the expected type, binding any type args to the
+    // necessary type as stored in the map. The expected type must be a concrete type (no TyParam).
+    // Returns true if a successful match is made.
+    fn match_return_type<'a>(
+        returned: &Type,
+        expected: &'a Type,
+        map: &mut BTreeMap<u16, &'a Type>,
+    ) -> bool {
+        match (returned, expected) {
+            // The important case, deduce the type params
+            (Type::TyParam(idx), _) => match map.entry(*idx) {
+                btree_map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(expected);
+                    true
+                },
+                btree_map::Entry::Occupied(occupied_entry) => *occupied_entry.get() == expected,
+            },
+            // Recursive types we need to recurse the matching types
+            (Type::Reference(ret_inner), Type::Reference(expected_inner))
+            | (Type::MutableReference(ret_inner), Type::MutableReference(expected_inner))
+            | (Type::Vector(ret_inner), Type::Vector(expected_inner)) => {
+                Self::match_return_type(ret_inner, expected_inner, map)
+            },
+            // For structs the both need to be the same struct.
+            (Type::Struct(ret_idx), Type::Struct(expected_idx)) => *ret_idx == *expected_idx,
+            // For struct instantiations we need to additionally match all type arguments
+            (
+                Type::StructInstantiation(ret_idx, ret_fields),
+                Type::StructInstantiation(expected_idx, expected_fields),
+            ) => {
+                *ret_idx == *expected_idx
+                    && ret_fields.len() == expected_fields.len()
+                    && ret_fields
+                        .iter()
+                        .zip(expected_fields.iter())
+                        .all(|types| Self::match_return_type(types.0, types.1, map))
+            },
+            // For primitive types we need to assure the types match
+            (Type::U8, Type::U8)
+            | (Type::U16, Type::U16)
+            | (Type::U32, Type::U32)
+            | (Type::U64, Type::U64)
+            | (Type::U128, Type::U128)
+            | (Type::U256, Type::U256)
+            | (Type::Bool, Type::Bool)
+            | (Type::Address, Type::Address)
+            | (Type::Signer, Type::Signer) => true,
+            // Otherwise the types do not match and we can't match return type to the expected type.
+            // Note we don't use the _ pattern but spell out all cases, so that the compiler will
+            // bark when a case is missed upon future updates to the types.
+            (Type::U8, _)
+            | (Type::U16, _)
+            | (Type::U32, _)
+            | (Type::U64, _)
+            | (Type::U128, _)
+            | (Type::U256, _)
+            | (Type::Bool, _)
+            | (Type::Address, _)
+            | (Type::Signer, _)
+            | (Type::Struct(_), _)
+            | (Type::StructInstantiation(_, _), _)
+            | (Type::Vector(_), _)
+            | (Type::MutableReference(_), _)
+            | (Type::Reference(_), _) => false,
+        }
+    }
+
+    // Loading verifies the module if it was never loaded.
+    // Type parameters are inferred from the expected return type. Returns an error if it's not
+    // possible to infer the type parameters or return type cannot be matched.
+    // The type parameters are verified with capabilities.
+    pub(crate) fn load_function_with_type_arg_inference(
+        &self,
+        module_id: &ModuleId,
+        function_name: &IdentStr,
+        expected_return_type: &Type,
+        data_store: &TransactionDataCache,
+    ) -> VMResult<(LoadedFunction, LoadedFunctionInstantiation)> {
+        let (module, func, parameters, return_vec) =
+            self.load_function_without_type_args(module_id, function_name, data_store)?;
+
+        if return_vec.len() != 1 {
+            // For functions that are marked constructor this should not happen.
+            return Err(PartialVMError::new(StatusCode::ABORTED).finish(Location::Undefined));
+        }
+        let return_type = &return_vec[0];
+
+        let mut map = BTreeMap::new();
+        if !Self::match_return_type(return_type, expected_return_type, &mut map) {
+            // For functions that are marked constructor this should not happen.
+            return Err(
+                PartialVMError::new(StatusCode::INVALID_MAIN_FUNCTION_SIGNATURE)
+                    .finish(Location::Undefined),
+            );
+        }
+
+        // Construct the type arguments from the match
+        let mut type_arguments = vec![];
+        let type_param_len = func.type_parameters().len();
+        for i in 0..type_param_len {
+            if let Option::Some(t) = map.get(&(i as u16)) {
+                type_arguments.push((*t).clone());
+            } else {
+                // Unknown type argument we are not able to infer the type arguments.
+                // For functions that are marked constructor this should not happen.
+                return Err(
+                    PartialVMError::new(StatusCode::INVALID_MAIN_FUNCTION_SIGNATURE)
+                        .finish(Location::Undefined),
+                );
+            }
+        }
+
+        // verify type arguments for capability constraints
+        self.verify_ty_args(func.type_parameters(), &type_arguments)
+            .map_err(|e| e.finish(Location::Module(module_id.clone())))?;
+
+        let loaded = LoadedFunctionInstantiation {
+            type_arguments,
+            parameters,
+            return_: return_vec,
+        };
+        Ok((
+            LoadedFunction {
+                module,
+                function: func,
+            },
+            loaded,
+        ))
+    }
+
+    // Entry point for function execution (`MoveVM::execute_function`).
+    // Loading verifies the module if it was never loaded.
+    // Type parameters are checked as well after every type is loaded.
+    pub(crate) fn load_function(
+        &self,
+        module_id: &ModuleId,
+        function_name: &IdentStr,
+        ty_args: &[TypeTag],
+        data_store: &TransactionDataCache,
+    ) -> VMResult<(Arc<Module>, Arc<Function>, LoadedFunctionInstantiation)> {
+        let (module, func, parameters, return_) =
+            self.load_function_without_type_args(module_id, function_name, data_store)?;
+
         let type_arguments = ty_args
             .iter()
             .map(|ty| self.load_type(ty, data_store))
             .collect::<VMResult<Vec<_>>>()?;
+
+        // verify type arguments
         self.verify_ty_args(func.type_parameters(), &type_arguments)
             .map_err(|e| e.finish(Location::Module(module_id.clone())))?;
 
@@ -868,7 +1008,7 @@ impl Loader {
     pub(crate) fn verify_module_bundle_for_publication(
         &self,
         modules: &[CompiledModule],
-        data_store: &mut impl DataStore,
+        data_store: &mut TransactionDataCache,
     ) -> VMResult<()> {
         fail::fail_point!("verifier-failpoint-1", |_| { Ok(()) });
 
@@ -905,7 +1045,7 @@ impl Loader {
         module: &CompiledModule,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
     ) -> VMResult<()> {
         // Performs all verification steps to load the module without loading it, i.e., the new
         // module will NOT show up in `module_cache`. In the module republishing case, it means
@@ -983,35 +1123,8 @@ impl Loader {
         )
     }
 
-    // All native functions must be known to the loader, unless we are compiling with feature
-    // `lazy_natives`.
     fn check_natives(&self, module: &CompiledModule) -> VMResult<()> {
-        fn check_natives_impl(loader: &Loader, module: &CompiledModule) -> PartialVMResult<()> {
-            if !cfg!(feature = "lazy_natives") {
-                for (idx, native_function) in module
-                    .function_defs()
-                    .iter()
-                    .filter(|fdv| fdv.is_native())
-                    .enumerate()
-                {
-                    let fh = module.function_handle_at(native_function.function);
-                    let mh = module.module_handle_at(fh.module);
-                    loader
-                        .natives
-                        .resolve(
-                            module.address_identifier_at(mh.address),
-                            module.identifier_at(mh.name).as_str(),
-                            module.identifier_at(fh.name).as_str(),
-                        )
-                        .ok_or_else(|| {
-                            verification_error(
-                                StatusCode::MISSING_DEPENDENCY,
-                                IndexKind::FunctionHandle,
-                                idx as TableIndex,
-                            )
-                        })?;
-                }
-            }
+        fn check_natives_impl(_loader: &Loader, module: &CompiledModule) -> PartialVMResult<()> {
             // TODO: fix check and error code if we leave something around for native structs.
             // For now this generates the only error test cases care about...
             for (idx, struct_def) in module.struct_defs().iter().enumerate() {
@@ -1035,7 +1148,7 @@ impl Loader {
     pub(crate) fn load_type(
         &self,
         type_tag: &TypeTag,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
     ) -> VMResult<Type> {
         Ok(match type_tag {
             TypeTag::Bool => Type::Bool,
@@ -1068,7 +1181,7 @@ impl Loader {
                         .map_err(|e| e.finish(Location::Undefined))?;
                     Type::StructInstantiation(idx, type_params)
                 }
-            }
+            },
         })
     }
 
@@ -1077,7 +1190,7 @@ impl Loader {
     pub(crate) fn load_module(
         &self,
         id: &ModuleId,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
     ) -> VMResult<Arc<Module>> {
         self.load_module_internal(id, &BTreeMap::new(), &BTreeSet::new(), data_store)
     }
@@ -1089,7 +1202,7 @@ impl Loader {
         id: &ModuleId,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
     ) -> VMResult<Arc<Module>> {
         // if the module is already in the code cache, load the cached version
         if let Some(cached) = self.module_cache.read().module_at(id) {
@@ -1121,7 +1234,7 @@ impl Loader {
     fn load_and_verify_module(
         &self,
         id: &ModuleId,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
         allow_loading_failure: bool,
     ) -> VMResult<CompiledModule> {
         // bytes fetching, allow loading to fail if the flag is set
@@ -1129,9 +1242,8 @@ impl Loader {
             Ok(bytes) => bytes,
             Err(err) if allow_loading_failure => return Err(err),
             Err(err) => {
-                error!("[VM] Error fetching module with id {:?}", id);
                 return Err(expect_no_verification_errors(err));
-            }
+            },
         };
 
         // for bytes obtained from the data store, they should always deserialize and verify.
@@ -1172,7 +1284,7 @@ impl Loader {
         &self,
         id: &ModuleId,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
         visited: &mut BTreeSet<ModuleId>,
         friends_discovered: &mut BTreeSet<ModuleId>,
         allow_module_loading_failure: bool,
@@ -1214,7 +1326,7 @@ impl Loader {
         &self,
         module: &CompiledModule,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
         visited: &mut BTreeSet<ModuleId>,
         friends_discovered: &mut BTreeSet<ModuleId>,
         allow_dependency_loading_failure: bool,
@@ -1251,7 +1363,7 @@ impl Loader {
                             allow_dependency_loading_failure,
                             dependencies_depth + 1,
                         )?
-                    }
+                    },
                     Some(cached) => cached,
                 };
                 cached_deps.push(loaded);
@@ -1283,7 +1395,7 @@ impl Loader {
         id: &ModuleId,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
         allow_module_loading_failure: bool,
         dependencies_depth: usize,
     ) -> VMResult<Arc<Module>> {
@@ -1320,7 +1432,7 @@ impl Loader {
         friends_discovered: BTreeSet<ModuleId>,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &impl DataStore,
+        data_store: &TransactionDataCache,
         allow_friend_loading_failure: bool,
         dependencies_depth: usize,
     ) -> VMResult<()> {
@@ -1378,15 +1490,35 @@ impl Loader {
         // existing type instantiation.
         // If that number is larger than MAX_TYPE_INSTANTIATION_NODES, refuse to construct this type.
         // This prevents constructing larger and lager types via struct instantiation.
-        if let Type::StructInstantiation(_, struct_inst) = ty {
-            let mut sum_nodes = 1u64;
-            for ty in ty_args.iter().chain(struct_inst.iter()) {
-                sum_nodes = sum_nodes.saturating_add(self.count_type_nodes(ty));
-                if sum_nodes > MAX_TYPE_INSTANTIATION_NODES {
+        match ty {
+            Type::MutableReference(_) | Type::Reference(_) | Type::Vector(_) => {
+                if self.vm_config.type_size_limit
+                    && self.count_type_nodes(ty) > MAX_TYPE_INSTANTIATION_NODES
+                {
                     return Err(PartialVMError::new(StatusCode::TOO_MANY_TYPE_NODES));
                 }
-            }
-        }
+            },
+            Type::StructInstantiation(_, struct_inst) => {
+                let mut sum_nodes = 1u64;
+                for ty in ty_args.iter().chain(struct_inst.iter()) {
+                    sum_nodes = sum_nodes.saturating_add(self.count_type_nodes(ty));
+                    if sum_nodes > MAX_TYPE_INSTANTIATION_NODES {
+                        return Err(PartialVMError::new(StatusCode::TOO_MANY_TYPE_NODES));
+                    }
+                }
+            },
+            Type::Address
+            | Type::Bool
+            | Type::Signer
+            | Type::Struct(_)
+            | Type::TyParam(_)
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::U128
+            | Type::U256 => (),
+        };
         ty.subst(ty_args)
     }
 
@@ -1420,14 +1552,8 @@ impl Loader {
         self.module_cache.read().function_at(idx)
     }
 
-    fn get_module(&self, idx: &ModuleId) -> Arc<Module> {
-        Arc::clone(
-            self.module_cache
-                .read()
-                .modules
-                .get(idx)
-                .expect("ModuleId on Function must exist"),
-        )
+    pub(crate) fn get_module(&self, idx: &ModuleId) -> Option<Arc<Module>> {
+        self.module_cache.read().modules.get(idx).cloned()
     }
 
     fn get_script(&self, hash: &ScriptHash) -> Arc<Script> {
@@ -1463,11 +1589,11 @@ impl Loader {
                 "Unexpected TyParam type after translating from TypeTag to Type".to_string(),
             )),
 
-            Type::Vector(ty) => AbilitySet::polymorphic_abilities(
-                AbilitySet::VECTOR,
-                vec![false],
-                vec![self.abilities(ty)?],
-            ),
+            Type::Vector(ty) => {
+                AbilitySet::polymorphic_abilities(AbilitySet::VECTOR, vec![false], vec![
+                    self.abilities(ty)?
+                ])
+            },
             Type::Struct(idx) => Ok(self.module_cache.read().struct_at(*idx).abilities),
             Type::StructInstantiation(idx, type_args) => {
                 let struct_type = self.module_cache.read().struct_at(*idx);
@@ -1484,7 +1610,7 @@ impl Loader {
                     declared_phantom_parameters,
                     type_argument_abilities,
                 )
-            }
+            },
         }
     }
 }
@@ -1989,14 +2115,14 @@ impl Module {
                                                 expects one and only one signature token"
                                                     .to_owned(),
                                             ));
-                                        }
+                                        },
                                         Some(sig_token) => sig_token,
                                     };
                                     single_signature_token_map
                                         .insert(*si, cache.make_type_while_loading(&module, ty)?);
                                 }
-                            }
-                            _ => {}
+                            },
+                            _ => {},
                         }
                     }
                 }
@@ -2265,7 +2391,7 @@ impl Script {
                                         .to_owned(),
                                 )
                                 .finish(Location::Script));
-                            }
+                            },
                             Some(sig_token) => sig_token,
                         };
                         single_signature_token_map.insert(
@@ -2275,8 +2401,8 @@ impl Script {
                                 .map_err(|e| e.finish(Location::Script))?,
                         );
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -2336,6 +2462,13 @@ pub(crate) struct Function {
     return_types: Vec<Type>,
     local_types: Vec<Type>,
     parameter_types: Vec<Type>,
+}
+
+// This struct must be treated as an identifier for a function and not somehow relying on
+// the internal implementation.
+pub struct LoadedFunction {
+    pub(crate) module: Arc<Module>,
+    pub(crate) function: Arc<Function>,
 }
 
 impl Function {
@@ -2421,13 +2554,15 @@ impl Function {
     pub(crate) fn get_resolver<'a>(&self, loader: &'a Loader) -> Resolver<'a> {
         match &self.scope {
             Scope::Module(module_id) => {
-                let module = loader.get_module(module_id);
+                let module = loader
+                    .get_module(module_id)
+                    .expect("ModuleId on Function must exist");
                 Resolver::for_module(loader, module)
-            }
+            },
             Scope::Script(script_hash) => {
                 let script = loader.get_script(script_hash);
                 Resolver::for_script(loader, script)
-            }
+            },
         }
     }
 
@@ -2488,20 +2623,10 @@ impl Function {
     }
 
     pub(crate) fn get_native(&self) -> PartialVMResult<&UnboxedNativeFunction> {
-        if cfg!(feature = "lazy_natives") {
-            // If lazy_natives is configured, this is a MISSING_DEPENDENCY error, as we skip
-            // checking those at module loading time.
-            self.native.as_deref().ok_or_else(|| {
-                PartialVMError::new(StatusCode::MISSING_DEPENDENCY)
-                    .with_message(format!("Missing Native Function `{}`", self.name))
-            })
-        } else {
-            // Otherwise this error should not happen, hence UNREACHABLE
-            self.native.as_deref().ok_or_else(|| {
-                PartialVMError::new(StatusCode::UNREACHABLE)
-                    .with_message("Missing Native Function".to_string())
-            })
-        }
+        self.native.as_deref().ok_or_else(|| {
+            PartialVMError::new(StatusCode::MISSING_DEPENDENCY)
+                .with_message(format!("Missing Native Function `{}`", self.name))
+        })
     }
 }
 
@@ -2655,16 +2780,16 @@ impl Loader {
             Type::Vector(ty) => TypeTag::Vector(Box::new(self.type_to_type_tag(ty)?)),
             Type::Struct(gidx) => {
                 TypeTag::Struct(Box::new(self.struct_gidx_to_type_tag(*gidx, &[])?))
-            }
+            },
             Type::StructInstantiation(gidx, ty_args) => {
                 TypeTag::Struct(Box::new(self.struct_gidx_to_type_tag(*gidx, ty_args)?))
-            }
+            },
             Type::Reference(_) | Type::MutableReference(_) | Type::TyParam(_) => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("no type tag for {:?}", ty)),
                 );
-            }
+            },
         })
     }
 
@@ -2676,14 +2801,14 @@ impl Loader {
                 Type::Vector(ty) | Type::Reference(ty) | Type::MutableReference(ty) => {
                     result += 1;
                     todo.push(ty);
-                }
+                },
                 Type::StructInstantiation(_, ty_args) => {
                     result += 1;
                     todo.extend(ty_args.iter())
-                }
+                },
                 _ => {
                     result += 1;
-                }
+                },
             }
         }
         result
@@ -2751,39 +2876,39 @@ impl Loader {
             Type::Bool => {
                 *count += 1;
                 MoveTypeLayout::Bool
-            }
+            },
             Type::U8 => {
                 *count += 1;
                 MoveTypeLayout::U8
-            }
+            },
             Type::U16 => {
                 *count += 1;
                 MoveTypeLayout::U16
-            }
+            },
             Type::U32 => {
                 *count += 1;
                 MoveTypeLayout::U32
-            }
+            },
             Type::U64 => {
                 *count += 1;
                 MoveTypeLayout::U64
-            }
+            },
             Type::U128 => {
                 *count += 1;
                 MoveTypeLayout::U128
-            }
+            },
             Type::U256 => {
                 *count += 1;
                 MoveTypeLayout::U256
-            }
+            },
             Type::Address => {
                 *count += 1;
                 MoveTypeLayout::Address
-            }
+            },
             Type::Signer => {
                 *count += 1;
                 MoveTypeLayout::Signer
-            }
+            },
             Type::Vector(ty) => {
                 *count += 1;
                 MoveTypeLayout::Vector(Box::new(self.type_to_type_layout_impl(
@@ -2791,23 +2916,23 @@ impl Loader {
                     count,
                     depth + 1,
                 )?))
-            }
+            },
             Type::Struct(gidx) => {
                 *count += 1;
                 MoveTypeLayout::Struct(self.struct_gidx_to_type_layout(*gidx, &[], count, depth)?)
-            }
+            },
             Type::StructInstantiation(gidx, ty_args) => {
                 *count += 1;
                 MoveTypeLayout::Struct(
                     self.struct_gidx_to_type_layout(*gidx, ty_args, count, depth)?,
                 )
-            }
+            },
             Type::Reference(_) | Type::MutableReference(_) | Type::TyParam(_) => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("no type layout for {:?}", ty)),
                 );
-            }
+            },
         })
     }
 
@@ -2902,7 +3027,7 @@ impl Loader {
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("no type layout for {:?}", ty)),
                 );
-            }
+            },
         })
     }
 
@@ -2929,7 +3054,7 @@ impl Loader {
     pub(crate) fn get_type_layout(
         &self,
         type_tag: &TypeTag,
-        move_storage: &impl DataStore,
+        move_storage: &TransactionDataCache,
     ) -> VMResult<MoveTypeLayout> {
         let ty = self.load_type(type_tag, move_storage)?;
         self.type_to_type_layout(&ty)
@@ -2939,7 +3064,7 @@ impl Loader {
     pub(crate) fn get_fully_annotated_type_layout(
         &self,
         type_tag: &TypeTag,
-        move_storage: &impl DataStore,
+        move_storage: &TransactionDataCache,
     ) -> VMResult<MoveTypeLayout> {
         let ty = self.load_type(type_tag, move_storage)?;
         self.type_to_fully_annotated_layout(&ty)

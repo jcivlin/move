@@ -9,7 +9,7 @@ use crate::{
     instantiation_loops::InstantiationLoopChecker, instruction_consistency::InstructionConsistency,
     limits::LimitsVerifier, script_signature,
     script_signature::no_additional_script_signature_checks, signature::SignatureChecker,
-    struct_defs::RecursiveStructDefChecker,
+    signature_v2, struct_defs::RecursiveStructDefChecker,
 };
 use move_binary_format::{
     check_bounds::BoundsChecker,
@@ -37,6 +37,7 @@ pub struct VerifierConfig {
     pub max_basic_blocks_in_script: Option<usize>,
     pub max_per_fun_meter_units: Option<u128>,
     pub max_per_mod_meter_units: Option<u128>,
+    pub use_signature_checker_v2: bool,
 }
 
 /// Helper for a "canonical" verification of a module.
@@ -94,11 +95,20 @@ pub fn verify_module_with_config(config: &VerifierConfig, module: &CompiledModul
         })?;
         LimitsVerifier::verify_module(config, module)?;
         DuplicationChecker::verify_module(module)?;
-        SignatureChecker::verify_module(module)?;
+
+        if config.use_signature_checker_v2 {
+            signature_v2::verify_module(module)?;
+        } else {
+            SignatureChecker::verify_module(module)?;
+        }
+
         InstructionConsistency::verify_module(module)?;
         constants::verify_module(module)?;
         friends::verify_module(module)?;
-        ability_field_requirements::verify_module(module)?;
+        if !config.use_signature_checker_v2 {
+            // This has been merged into the new signature checker so no need to run it if that one is enabled.
+            ability_field_requirements::verify_module(module)?;
+        }
         RecursiveStructDefChecker::verify_module(module)?;
         InstantiationLoopChecker::verify_module(module)?;
         CodeUnitVerifier::verify_module(config, module)?;
@@ -138,7 +148,13 @@ pub fn verify_script_with_config(config: &VerifierConfig, script: &CompiledScrip
         BoundsChecker::verify_script(script).map_err(|e| e.finish(Location::Script))?;
         LimitsVerifier::verify_script(config, script)?;
         DuplicationChecker::verify_script(script)?;
-        SignatureChecker::verify_script(script)?;
+
+        if config.use_signature_checker_v2 {
+            signature_v2::verify_script(script)?;
+        } else {
+            SignatureChecker::verify_script(script)?;
+        }
+
         InstructionConsistency::verify_script(script)?;
         constants::verify_script(script)?;
         CodeUnitVerifier::verify_script(config, script)?;
@@ -147,6 +163,7 @@ pub fn verify_script_with_config(config: &VerifierConfig, script: &CompiledScrip
     .unwrap_or_else(|_| {
         Err(
             PartialVMError::new(StatusCode::VERIFIER_INVARIANT_VIOLATION)
+                .with_message("[VM] bytecode verifier panicked for script".to_string())
                 .finish(Location::Undefined),
         )
     });
@@ -184,10 +201,13 @@ impl Default for VerifierConfig {
             max_back_edges_per_function: None,
             max_back_edges_per_module: None,
             max_basic_blocks_in_script: None,
-            /// General metering for the verifier. This defaults to a bound which should align
-            /// with production, so all existing test cases apply it.
-            max_per_fun_meter_units: Some(1000 * 8000),
-            max_per_mod_meter_units: Some(1000 * 8000),
+            // General metering for the verifier.
+            // max_per_fun_meter_units: Some(1000 * 8000),
+            // max_per_mod_meter_units: Some(1000 * 8000),
+            max_per_fun_meter_units: None,
+            max_per_mod_meter_units: None,
+
+            use_signature_checker_v2: true,
         }
     }
 }
@@ -199,6 +219,34 @@ impl VerifierConfig {
             max_per_fun_meter_units: None,
             max_per_mod_meter_units: None,
             ..VerifierConfig::default()
+        }
+    }
+
+    /// An approximation of what config is used in production.
+    pub fn production() -> Self {
+        Self {
+            max_loop_depth: Some(5),
+            max_generic_instantiation_length: Some(32),
+            max_function_parameters: Some(128),
+            max_basic_blocks: Some(1024),
+            max_basic_blocks_in_script: Some(1024),
+            max_value_stack_size: 1024,
+            max_type_nodes: Some(256),
+            max_push_size: Some(10000),
+            max_dependency_depth: Some(100),
+            max_struct_definitions: Some(200),
+            max_fields_in_struct: Some(30),
+            max_function_definitions: Some(1000),
+
+            // Do not use back edge constraints as they are superseded by metering
+            max_back_edges_per_function: None,
+            max_back_edges_per_module: None,
+
+            // Same as the default.
+            max_per_fun_meter_units: Some(1000 * 8000),
+            max_per_mod_meter_units: Some(1000 * 8000),
+
+            use_signature_checker_v2: true,
         }
     }
 }

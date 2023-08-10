@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::views::{TypeView, ValueView};
-use move_binary_format::errors::PartialVMResult;
+use move_binary_format::{
+    errors::PartialVMResult, file_format::CodeOffset, file_format_common::Opcodes,
+};
 use move_core_types::{
+    account_address::AccountAddress,
     gas_algebra::{InternalGas, NumArgs, NumBytes},
     language_storage::ModuleId,
 };
@@ -13,10 +16,6 @@ use move_core_types::{
 pub enum SimpleInstruction {
     Nop,
     Ret,
-
-    BrTrue,
-    BrFalse,
-    Branch,
 
     LdU8,
     LdU64,
@@ -67,6 +66,65 @@ pub enum SimpleInstruction {
     CastU256,
 }
 
+impl SimpleInstruction {
+    pub fn to_opcode(&self) -> Opcodes {
+        use Opcodes::*;
+        use SimpleInstruction::*;
+
+        match self {
+            Nop => NOP,
+            Ret => RET,
+
+            LdU8 => LD_U8,
+            LdU64 => LD_U64,
+            LdU128 => LD_U128,
+            LdTrue => LD_TRUE,
+            LdFalse => LD_FALSE,
+
+            FreezeRef => FREEZE_REF,
+            MutBorrowLoc => MUT_BORROW_LOC,
+            ImmBorrowLoc => IMM_BORROW_LOC,
+            ImmBorrowField => IMM_BORROW_FIELD,
+            MutBorrowField => MUT_BORROW_FIELD,
+            ImmBorrowFieldGeneric => IMM_BORROW_FIELD_GENERIC,
+            MutBorrowFieldGeneric => MUT_BORROW_FIELD_GENERIC,
+
+            CastU8 => CAST_U8,
+            CastU64 => CAST_U64,
+            CastU128 => CAST_U128,
+
+            Add => ADD,
+            Sub => SUB,
+            Mul => MUL,
+            Mod => MOD,
+            Div => DIV,
+
+            BitOr => BIT_OR,
+            BitAnd => BIT_AND,
+            Xor => XOR,
+            Shl => SHL,
+            Shr => SHR,
+
+            Or => OR,
+            And => AND,
+            Not => NOT,
+
+            Lt => LT,
+            Gt => GT,
+            Le => LE,
+            Ge => GE,
+
+            Abort => ABORT,
+            LdU16 => LD_U16,
+            LdU32 => LD_U32,
+            LdU256 => LD_U256,
+            CastU16 => CAST_U16,
+            CastU32 => CAST_U32,
+            CastU256 => CAST_U256,
+        }
+    }
+}
+
 /// Trait that defines a generic gas meter interface, allowing clients of the Move VM to implement
 /// their own metering scheme.
 pub trait GasMeter {
@@ -75,13 +133,19 @@ pub trait GasMeter {
     /// Charge an instruction and fail if not enough gas units are left.
     fn charge_simple_instr(&mut self, instr: SimpleInstruction) -> PartialVMResult<()>;
 
+    fn charge_br_true(&mut self, target_offset: Option<CodeOffset>) -> PartialVMResult<()>;
+
+    fn charge_br_false(&mut self, target_offset: Option<CodeOffset>) -> PartialVMResult<()>;
+
+    fn charge_branch(&mut self, target_offset: CodeOffset) -> PartialVMResult<()>;
+
     fn charge_pop(&mut self, popped_val: impl ValueView) -> PartialVMResult<()>;
 
     fn charge_call(
         &mut self,
         module_id: &ModuleId,
         func_name: &str,
-        args: impl ExactSizeIterator<Item = impl ValueView>,
+        args: impl ExactSizeIterator<Item = impl ValueView> + Clone,
         num_locals: NumArgs,
     ) -> PartialVMResult<()>;
 
@@ -89,8 +153,8 @@ pub trait GasMeter {
         &mut self,
         module_id: &ModuleId,
         func_name: &str,
-        ty_args: impl ExactSizeIterator<Item = impl TypeView>,
-        args: impl ExactSizeIterator<Item = impl ValueView>,
+        ty_args: impl ExactSizeIterator<Item = impl TypeView> + Clone,
+        args: impl ExactSizeIterator<Item = impl ValueView> + Clone,
         num_locals: NumArgs,
     ) -> PartialVMResult<()>;
 
@@ -108,13 +172,13 @@ pub trait GasMeter {
     fn charge_pack(
         &mut self,
         is_generic: bool,
-        args: impl ExactSizeIterator<Item = impl ValueView>,
+        args: impl ExactSizeIterator<Item = impl ValueView> + Clone,
     ) -> PartialVMResult<()>;
 
     fn charge_unpack(
         &mut self,
         is_generic: bool,
-        args: impl ExactSizeIterator<Item = impl ValueView>,
+        args: impl ExactSizeIterator<Item = impl ValueView> + Clone,
     ) -> PartialVMResult<()>;
 
     fn charge_read_ref(&mut self, val: impl ValueView) -> PartialVMResult<()>;
@@ -163,7 +227,7 @@ pub trait GasMeter {
     fn charge_vec_pack<'a>(
         &mut self,
         ty: impl TypeView + 'a,
-        args: impl ExactSizeIterator<Item = impl ValueView>,
+        args: impl ExactSizeIterator<Item = impl ValueView> + Clone,
     ) -> PartialVMResult<()>;
 
     fn charge_vec_len(&mut self, ty: impl TypeView) -> PartialVMResult<()>;
@@ -192,7 +256,7 @@ pub trait GasMeter {
         &mut self,
         ty: impl TypeView,
         expect_num_elements: NumArgs,
-        elems: impl ExactSizeIterator<Item = impl ValueView>,
+        elems: impl ExactSizeIterator<Item = impl ValueView> + Clone,
     ) -> PartialVMResult<()>;
 
     // TODO(Gas): Expose the two elements
@@ -200,14 +264,15 @@ pub trait GasMeter {
 
     /// Charges for loading a resource from storage. This is only called when the resource is not
     /// cached.
-    /// - `Some(n)` means `n` bytes are loaded.
-    /// - `None` means a load operation is performed but the resource does not exist.
     ///
     /// WARNING: This can be dangerous if you execute multiple user transactions in the same
     /// session -- identical transactions can have different gas costs. Use at your own risk.
     fn charge_load_resource(
         &mut self,
-        loaded: Option<(NumBytes, impl ValueView)>,
+        addr: AccountAddress,
+        ty: impl TypeView,
+        val: Option<impl ValueView>,
+        bytes_loaded: NumBytes,
     ) -> PartialVMResult<()>;
 
     /// Charge for executing a native function.
@@ -219,18 +284,18 @@ pub trait GasMeter {
     fn charge_native_function(
         &mut self,
         amount: InternalGas,
-        ret_vals: Option<impl ExactSizeIterator<Item = impl ValueView>>,
+        ret_vals: Option<impl ExactSizeIterator<Item = impl ValueView> + Clone>,
     ) -> PartialVMResult<()>;
 
     fn charge_native_function_before_execution(
         &mut self,
-        ty_args: impl ExactSizeIterator<Item = impl TypeView>,
-        args: impl ExactSizeIterator<Item = impl ValueView>,
+        ty_args: impl ExactSizeIterator<Item = impl TypeView> + Clone,
+        args: impl ExactSizeIterator<Item = impl ValueView> + Clone,
     ) -> PartialVMResult<()>;
 
     fn charge_drop_frame(
         &mut self,
-        locals: impl Iterator<Item = impl ValueView>,
+        locals: impl Iterator<Item = impl ValueView> + Clone,
     ) -> PartialVMResult<()>;
 }
 
@@ -244,6 +309,18 @@ impl GasMeter for UnmeteredGasMeter {
     }
 
     fn charge_simple_instr(&mut self, _instr: SimpleInstruction) -> PartialVMResult<()> {
+        Ok(())
+    }
+
+    fn charge_br_false(&mut self, _target_offset: Option<CodeOffset>) -> PartialVMResult<()> {
+        Ok(())
+    }
+
+    fn charge_br_true(&mut self, _target_offset: Option<CodeOffset>) -> PartialVMResult<()> {
+        Ok(())
+    }
+
+    fn charge_branch(&mut self, _target_offset: CodeOffset) -> PartialVMResult<()> {
         Ok(())
     }
 
@@ -421,7 +498,10 @@ impl GasMeter for UnmeteredGasMeter {
 
     fn charge_load_resource(
         &mut self,
-        _loaded: Option<(NumBytes, impl ValueView)>,
+        _addr: AccountAddress,
+        _ty: impl TypeView,
+        _val: Option<impl ValueView>,
+        _bytes_loaded: NumBytes,
     ) -> PartialVMResult<()> {
         Ok(())
     }

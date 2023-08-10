@@ -15,25 +15,27 @@ use move_core_types::{
     account_address::AccountAddress,
     identifier::Identifier,
     language_storage::{ModuleId, StructTag, TypeTag},
+    metadata::Metadata,
     parser,
-    resolver::{ModuleResolver, ResourceResolver},
+    resolver::{resource_size, ModuleResolver, ResourceResolver},
 };
 use move_disassembler::disassembler::Disassembler;
 use move_ir_types::location::Spanned;
 use move_resource_viewer::{AnnotatedMoveStruct, AnnotatedMoveValue, MoveValueAnnotator};
 use std::{
     convert::{TryFrom, TryInto},
+    fmt::Debug,
     fs,
     path::{Path, PathBuf},
 };
 
 type Event = (Vec<u8>, u64, TypeTag, Vec<u8>);
 
-/// subdirectory of `DEFAULT_STORAGE_DIR`/<addr> where resources are stored
+/// subdirectory of `DEFAULT_STORAGE_DIR/<addr>` where resources are stored
 pub const RESOURCES_DIR: &str = "resources";
-/// subdirectory of `DEFAULT_STORAGE_DIR`/<addr> where modules are stored
+/// subdirectory of `DEFAULT_STORAGE_DIR/<addr>` where modules are stored
 pub const MODULES_DIR: &str = "modules";
-/// subdirectory of `DEFAULT_STORAGE_DIR`/<addr> where events are stored
+/// subdirectory of `DEFAULT_STORAGE_DIR/<addr>` where events are stored
 pub const EVENTS_DIR: &str = "events";
 
 /// file under `DEFAULT_BUILD_DIR` where a registry of generated struct layouts are stored
@@ -144,7 +146,7 @@ impl OnDiskStateView {
                     AccountAddress::from_hex_literal(parent.file_stem().unwrap().to_str().unwrap())
                         .unwrap();
                 Some(ModuleId::new(addr, name))
-            }
+            },
             None => None,
         }
     }
@@ -213,7 +215,7 @@ impl OnDiskStateView {
                 match Self::get_bytes(resource_path)? {
                     Some(resource_data) => {
                         Some(MoveValueAnnotator::new(self).view_resource(&id, &resource_data)?)
-                    }
+                    },
                     None => None,
                 }
             }),
@@ -261,7 +263,7 @@ impl OnDiskStateView {
                 let d: Disassembler =
                     Disassembler::from_view(view, Spanned::unsafe_no_loc(()).loc)?;
                 Some(d.disassemble()?)
-            }
+            },
             None => None,
         })
     }
@@ -401,21 +403,25 @@ impl OnDiskStateView {
 }
 
 impl ModuleResolver for OnDiskStateView {
-    type Error = anyhow::Error;
-    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+        vec![]
+    }
+
+    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, anyhow::Error> {
         self.get_module_bytes(module_id)
     }
 }
 
 impl ResourceResolver for OnDiskStateView {
-    type Error = anyhow::Error;
-
-    fn get_resource(
+    fn get_resource_with_metadata(
         &self,
         address: &AccountAddress,
         struct_tag: &StructTag,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.get_resource_bytes(*address, struct_tag.clone())
+        _metadata: &[Metadata],
+    ) -> Result<(Option<Vec<u8>>, usize)> {
+        let buf = self.get_resource_bytes(*address, struct_tag.clone())?;
+        let buf_size = resource_size(&buf);
+        Ok((buf, buf_size))
     }
 }
 

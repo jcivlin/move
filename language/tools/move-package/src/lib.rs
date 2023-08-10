@@ -9,20 +9,6 @@ pub mod package_hooks;
 pub mod resolution;
 pub mod source_package;
 
-use anyhow::{bail, Result};
-use clap::*;
-use move_core_types::account_address::AccountAddress;
-use move_model::model::GlobalEnv;
-use resolution::{dependency_graph::DependencyGraph, lock_file::LockFile};
-use serde::{Deserialize, Serialize};
-use source_package::layout::SourcePackageLayout;
-use std::{
-    collections::BTreeMap,
-    fmt,
-    io::Write,
-    path::{Path, PathBuf},
-};
-
 use crate::{
     compilation::{
         build_plan::BuildPlan, compiled_package::CompiledPackage, model_builder::ModelBuilder,
@@ -30,6 +16,18 @@ use crate::{
     package_lock::PackageLock,
     resolution::resolution_graph::{ResolutionGraph, ResolvedGraph},
     source_package::manifest_parser,
+};
+use anyhow::{bail, Result};
+use clap::*;
+use move_core_types::account_address::AccountAddress;
+use move_model::model::GlobalEnv;
+use serde::{Deserialize, Serialize};
+use source_package::layout::SourcePackageLayout;
+use std::{
+    collections::BTreeMap,
+    fmt,
+    io::Write,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -86,7 +84,7 @@ impl Architecture {
                     supported_architectures.join(", "),
                     be
                 )
-            }
+            },
         })
     }
 }
@@ -120,10 +118,6 @@ pub struct BuildConfig {
     /// Force recompilation of all packages
     #[clap(name = "force-recompilation", long = "force", global = true)]
     pub force_recompilation: bool,
-
-    /// Optional location to save the lock file to, if package resolution succeeds.
-    #[clap(skip)]
-    pub lock_file: Option<PathBuf>,
 
     /// Additional named address mapping. Useful for tools in rust
     #[clap(skip)]
@@ -219,7 +213,7 @@ impl BuildConfig {
         // This should be locked as it inspects the environment for `MOVE_HOME` which could
         // possibly be set by a different process in parallel.
         let manifest = manifest_parser::parse_source_manifest(toml_manifest)?;
-        resolution::download_dependency_repos(&manifest, self, &path, writer)?;
+        ResolutionGraph::download_dependency_repos(&manifest, self, &path, writer)?;
         mutx.unlock();
         Ok(())
     }
@@ -236,29 +230,13 @@ impl BuildConfig {
         let toml_manifest =
             self.parse_toml_manifest(path.join(SourcePackageLayout::Manifest.path()))?;
         let mutx = PackageLock::lock();
-
         // This should be locked as it inspects the environment for `MOVE_HOME` which could
         // possibly be set by a different process in parallel.
-        let mut lock = LockFile::new(&path)?;
         let manifest = manifest_parser::parse_source_manifest(toml_manifest)?;
-
-        let dependency_graph = DependencyGraph::new(
-            &manifest,
-            path.clone(),
-            self.skip_fetch_latest_git_deps,
-            writer,
-        )?;
-
-        dependency_graph.write_to_lock(&mut lock)?;
-        if let Some(lock_path) = &self.lock_file {
-            lock.commit(lock_path)?;
-        }
-
         let resolution_graph = ResolutionGraph::new(manifest, path, self, writer)?;
-        let ret = resolution_graph.resolve()?;
-
+        let ret = resolution_graph.resolve();
         mutx.unlock();
-        Ok(ret)
+        ret
     }
 
     fn parse_toml_manifest(&self, path: PathBuf) -> Result<toml::Value> {

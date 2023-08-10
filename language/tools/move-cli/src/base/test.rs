@@ -16,6 +16,12 @@ use move_coverage::coverage_map::{output_map_to_file, CoverageMap};
 use move_package::{compilation::build_plan::BuildPlan, BuildConfig};
 use move_unit_test::UnitTestingConfig;
 use move_vm_test_utils::gas_schedule::CostTable;
+// if unix
+#[cfg(any(target_family = "unix"))]
+use std::os::unix::prelude::ExitStatusExt;
+// if windows
+#[cfg(target_family = "windows")]
+use std::os::windows::process::ExitStatusExt;
 use std::{
     collections::HashMap,
     fs,
@@ -23,12 +29,6 @@ use std::{
     path::{Path, PathBuf},
     process::ExitStatus,
 };
-// if windows
-#[cfg(target_family = "windows")]
-use std::os::windows::process::ExitStatusExt;
-// if unix
-#[cfg(any(target_family = "unix"))]
-use std::os::unix::prelude::ExitStatusExt;
 // if not windows nor unix
 #[cfg(not(any(target_family = "windows", target_family = "unix")))]
 compile_error!("Unsupported OS, currently we only support windows and unix family");
@@ -41,7 +41,7 @@ pub struct Test {
     #[clap(name = "gas_limit", short = 'i', long = "gas_limit")]
     pub gas_limit: Option<u64>,
     /// An optional filter string to determine which unit tests to run. A unit test will be run only if it
-    /// contains this string in its fully qualified (<addr>::<module_name>::<fn_name>) name.
+    /// contains this string in its fully qualified (`<addr>::<module_name>::<fn_name>`) name.
     #[clap(name = "filter")]
     pub filter: Option<String>,
     /// List all tests

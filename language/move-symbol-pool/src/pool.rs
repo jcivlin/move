@@ -62,8 +62,10 @@ impl Pool {
     /// Allocates a contiguous array of buckets on the heap. As strings are
     /// inserted into the pool, buckets in this array are filled with an entry.
     pub(crate) fn new() -> Self {
-        let vec = std::mem::ManuallyDrop::new(vec![0_usize; NB_BUCKETS]);
-        Self(unsafe { Box::from_raw(vec.as_ptr() as *mut [Bucket; NB_BUCKETS]) })
+        // Using const INIT, works around the fact that [None; NB_BUCKETS] not being possible
+        // because Bucket is not Copy.
+        const INIT: Bucket = None;
+        Self(Box::new([INIT; NB_BUCKETS]))
     }
 
     /// Computes the hash value of a string, which is used to determine both
@@ -117,9 +119,8 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
     use crate::Pool;
+    use std::borrow::Cow;
 
     #[test]
     fn test_insert_identical_strings_have_the_same_entry() {

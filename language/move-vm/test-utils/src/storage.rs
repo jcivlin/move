@@ -2,23 +2,20 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Error, Result};
 use move_core_types::{
     account_address::AccountAddress,
     effects::{AccountChangeSet, ChangeSet, Op},
     identifier::Identifier,
     language_storage::{ModuleId, StructTag},
-    resolver::{ModuleResolver, MoveResolver, ResourceResolver},
+    metadata::Metadata,
+    resolver::{resource_size, ModuleResolver, MoveResolver, ResourceResolver},
 };
+#[cfg(feature = "table-extension")]
+use move_table_extension::{TableChangeSet, TableHandle, TableResolver};
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::Debug,
-};
-
-#[cfg(feature = "table-extension")]
-use {
-    anyhow::Error,
-    move_table_extension::{TableChangeSet, TableHandle, TableResolver},
 };
 
 /// A dummy storage containing no modules or resources.
@@ -32,22 +29,23 @@ impl BlankStorage {
 }
 
 impl ModuleResolver for BlankStorage {
-    type Error = ();
+    fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+        vec![]
+    }
 
-    fn get_module(&self, _module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_module(&self, _module_id: &ModuleId) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
 }
 
 impl ResourceResolver for BlankStorage {
-    type Error = ();
-
-    fn get_resource(
+    fn get_resource_with_metadata(
         &self,
         _address: &AccountAddress,
         _tag: &StructTag,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        Ok(None)
+        _metadata: &[Metadata],
+    ) -> Result<(Option<Vec<u8>>, usize)> {
+        Ok((None, 0))
     }
 }
 
@@ -71,9 +69,11 @@ pub struct DeltaStorage<'a, 'b, S> {
 }
 
 impl<'a, 'b, S: ModuleResolver> ModuleResolver for DeltaStorage<'a, 'b, S> {
-    type Error = S::Error;
+    fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+        vec![]
+    }
 
-    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Error> {
         if let Some(account_storage) = self.delta.accounts().get(module_id.address()) {
             if let Some(blob_opt) = account_storage.modules().get(module_id.name()) {
                 return Ok(blob_opt.clone().ok());
@@ -85,20 +85,22 @@ impl<'a, 'b, S: ModuleResolver> ModuleResolver for DeltaStorage<'a, 'b, S> {
 }
 
 impl<'a, 'b, S: ResourceResolver> ResourceResolver for DeltaStorage<'a, 'b, S> {
-    type Error = S::Error;
-
-    fn get_resource(
+    fn get_resource_with_metadata(
         &self,
         address: &AccountAddress,
         tag: &StructTag,
-    ) -> Result<Option<Vec<u8>>, S::Error> {
+        metadata: &[Metadata],
+    ) -> Result<(Option<Vec<u8>>, usize)> {
         if let Some(account_storage) = self.delta.accounts().get(address) {
             if let Some(blob_opt) = account_storage.resources().get(tag) {
-                return Ok(blob_opt.clone().ok());
+                let buf = blob_opt.clone().ok();
+                let buf_size = resource_size(&buf);
+                return Ok((buf, buf_size));
             }
         }
 
-        self.base.get_resource(address, tag)
+        // TODO
+        self.base.get_resource_with_metadata(address, tag, metadata)
     }
 }
 
@@ -152,16 +154,16 @@ where
                     "Failed to apply changes -- key {:?} already exists",
                     entry.key()
                 )
-            }
+            },
             (Occupied(entry), Delete) => {
                 entry.remove();
-            }
+            },
             (Occupied(entry), Modify(val)) => {
                 *entry.into_mut() = val;
-            }
+            },
             (Vacant(entry), New(val)) => {
                 entry.insert(val);
-            }
+            },
             (Vacant(entry), Delete | Modify(_)) => bail!(
                 "Failed to apply changes -- key {:?} does not exist",
                 entry.key()
@@ -210,12 +212,12 @@ impl InMemoryStorage {
             match self.accounts.entry(addr) {
                 btree_map::Entry::Occupied(entry) => {
                     entry.into_mut().apply(account_changeset)?;
-                }
+                },
                 btree_map::Entry::Vacant(entry) => {
                     let mut account_storage = InMemoryAccountStorage::new();
                     account_storage.apply(account_changeset)?;
                     entry.insert(account_storage);
-                }
+                },
             }
         }
 
@@ -241,12 +243,8 @@ impl InMemoryStorage {
             changes,
         } = changes;
         self.tables.retain(|h, _| !removed_tables.contains(h));
-        self.tables.extend(
-            new_tables
-                .keys()
-                .into_iter()
-                .map(|h| (*h, BTreeMap::default())),
-        );
+        self.tables
+            .extend(new_tables.keys().map(|h| (*h, BTreeMap::default())));
         for (h, c) in changes {
             assert!(
                 self.tables.contains_key(&h),
@@ -285,9 +283,11 @@ impl InMemoryStorage {
 }
 
 impl ModuleResolver for InMemoryStorage {
-    type Error = ();
+    fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+        vec![]
+    }
 
-    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Error> {
         if let Some(account_storage) = self.accounts.get(module_id.address()) {
             return Ok(account_storage.modules.get(module_id.name()).cloned());
         }
@@ -296,17 +296,18 @@ impl ModuleResolver for InMemoryStorage {
 }
 
 impl ResourceResolver for InMemoryStorage {
-    type Error = ();
-
-    fn get_resource(
+    fn get_resource_with_metadata(
         &self,
         address: &AccountAddress,
         tag: &StructTag,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        _metadata: &[Metadata],
+    ) -> Result<(Option<Vec<u8>>, usize)> {
         if let Some(account_storage) = self.accounts.get(address) {
-            return Ok(account_storage.resources.get(tag).cloned());
+            let buf = account_storage.resources.get(tag).cloned();
+            let buf_size = resource_size(&buf);
+            return Ok((buf, buf_size));
         }
-        Ok(None)
+        Ok((None, 0))
     }
 }
 

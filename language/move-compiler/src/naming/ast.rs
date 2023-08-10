@@ -109,6 +109,7 @@ pub type FunctionBody = Spanned<FunctionBody_>;
 #[derive(PartialEq, Debug, Clone)]
 pub struct Function {
     pub attributes: Attributes,
+    pub inline: bool,
     pub visibility: Visibility,
     pub entry: Option<Loc>,
     pub signature: FunctionSignature,
@@ -154,6 +155,8 @@ pub enum BuiltinTypeName_ {
     Vector,
     // bool
     Bool,
+    // Function (last type arg is result type)
+    Fun,
 }
 pub type BuiltinTypeName = Spanned<BuiltinTypeName_>;
 
@@ -166,6 +169,12 @@ pub enum TypeName_ {
     ModuleType(ModuleIdent, StructName),
 }
 pub type TypeName = Spanned<TypeName_>;
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Variance {
+    Covariant,
+    ContraVariant,
+}
 
 #[derive(Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 pub struct TParamID(pub u64);
@@ -192,6 +201,19 @@ pub enum Type_ {
     UnresolvedError,
 }
 pub type Type = Spanned<Type_>;
+
+impl Type_ {
+    pub fn is_fun(&self) -> bool {
+        matches!(
+            self,
+            Type_::Apply(
+                _,
+                sp!(_, TypeName_::Builtin(sp!(_, BuiltinTypeName_::Fun))),
+                _
+            )
+        )
+    }
+}
 
 //**************************************************************************************************
 // Expressions
@@ -239,9 +261,11 @@ pub enum Exp_ {
     ModuleCall(
         ModuleIdent,
         FunctionName,
+        bool,
         Option<Vec<Type>>,
         Spanned<Vec<Exp>>,
     ),
+    VarCall(Var, Spanned<Vec<Exp>>),
     Builtin(BuiltinFunction, Spanned<Vec<Exp>>),
     Vector(Loc, Option<Type>, Spanned<Vec<Exp>>),
 
@@ -249,6 +273,7 @@ pub enum Exp_ {
     While(Box<Exp>, Box<Exp>),
     Loop(Box<Exp>),
     Block(Sequence),
+    Lambda(LValueList, Box<Exp>),
 
     Assign(LValueList, Box<Exp>),
     FieldMutate(ExpDotted, Box<Exp>),
@@ -275,7 +300,7 @@ pub enum Exp_ {
     Cast(Box<Exp>, Type),
     Annotate(Box<Exp>, Type),
 
-    Spec(SpecId, BTreeSet<Var>),
+    Spec(SpecId, BTreeSet<Var>, BTreeSet<Var>),
 
     UnresolvedError,
 }
@@ -334,14 +359,15 @@ static BUILTIN_TYPE_ORDERED: Lazy<BTreeSet<BuiltinTypeName_>> =
 
 impl BuiltinTypeName_ {
     pub const ADDRESS: &'static str = "address";
+    pub const BOOL: &'static str = "bool";
+    pub const FUN: &'static str = "|..|..";
     pub const SIGNER: &'static str = "signer";
-    pub const U_8: &'static str = "u8";
+    pub const U_128: &'static str = "u128";
     pub const U_16: &'static str = "u16";
+    pub const U_256: &'static str = "u256";
     pub const U_32: &'static str = "u32";
     pub const U_64: &'static str = "u64";
-    pub const U_128: &'static str = "u128";
-    pub const U_256: &'static str = "u256";
-    pub const BOOL: &'static str = "bool";
+    pub const U_8: &'static str = "u8";
     pub const VECTOR: &'static str = "vector";
 
     pub fn all_names() -> &'static BTreeSet<Symbol> {
@@ -387,13 +413,14 @@ impl BuiltinTypeName_ {
         match self {
             B::Address | B::U8 | B::U16 | B::U32 | B::U64 | B::U128 | B::U256 | B::Bool => {
                 AbilitySet::primitives(loc)
-            }
+            },
             B::Signer => AbilitySet::signer(loc),
             B::Vector => AbilitySet::collection(loc),
+            B::Fun => AbilitySet::functions(),
         }
     }
 
-    pub fn tparam_constraints(&self, _loc: Loc) -> Vec<AbilitySet> {
+    pub fn tparam_constraints(&self, _loc: Loc, arity: usize) -> Vec<AbilitySet> {
         use BuiltinTypeName_ as B;
         // Match here to make sure this function is fixed when collections are added
         match self {
@@ -407,6 +434,25 @@ impl BuiltinTypeName_ {
             | B::U256
             | B::Bool => vec![],
             B::Vector => vec![AbilitySet::empty()],
+            B::Fun => (0..arity).map(|_| AbilitySet::empty()).collect(),
+        }
+    }
+
+    pub fn variance(&self, pos: usize, arity: usize) -> Variance {
+        match self {
+            // Function variance: given g: T1 -> R1 and f: T2 -> R2, then
+            // f can substitute g if T2 >= T1 && R1 <= R2
+            BuiltinTypeName_::Fun if pos < arity - 1 => Variance::ContraVariant,
+            _ => Variance::Covariant,
+        }
+    }
+}
+
+impl TypeName_ {
+    pub fn variance(&self, pos: usize, arity: usize) -> Variance {
+        match self {
+            TypeName_::Builtin(bn) => bn.value.variance(pos, arity),
+            _ => Variance::Covariant,
         }
     }
 }
@@ -439,13 +485,13 @@ static BUILTIN_FUNCTION_ALL_NAMES: Lazy<BTreeSet<Symbol>> = Lazy::new(|| {
 });
 
 impl BuiltinFunction_ {
-    pub const MOVE_TO: &'static str = "move_to";
-    pub const MOVE_FROM: &'static str = "move_from";
+    pub const ASSERT_MACRO: &'static str = "assert";
     pub const BORROW_GLOBAL: &'static str = "borrow_global";
     pub const BORROW_GLOBAL_MUT: &'static str = "borrow_global_mut";
     pub const EXISTS: &'static str = "exists";
     pub const FREEZE: &'static str = "freeze";
-    pub const ASSERT_MACRO: &'static str = "assert";
+    pub const MOVE_FROM: &'static str = "move_from";
+    pub const MOVE_TO: &'static str = "move_to";
 
     pub fn all_names() -> &'static BTreeSet<Symbol> {
         &BUILTIN_FUNCTION_ALL_NAMES
@@ -484,9 +530,9 @@ impl Type_ {
         let abilities = match &b.value {
             B::Address | B::U8 | B::U16 | B::U32 | B::U64 | B::U128 | B::U256 | B::Bool => {
                 Some(AbilitySet::primitives(b.loc))
-            }
+            },
             B::Signer => Some(AbilitySet::signer(b.loc)),
-            B::Vector => None,
+            B::Vector | B::Fun => None,
         };
         let n = sp(b.loc, TypeName_::Builtin(b));
         Type_::Apply(abilities, n, ty_args)
@@ -554,6 +600,13 @@ impl Type_ {
             _ => None,
         }
     }
+
+    pub fn struct_name(&self) -> Option<(ModuleIdent, StructName)> {
+        match self {
+            Type_::Apply(_, sp!(_, TypeName_::ModuleType(m, s)), _) => Some((*m, *s)),
+            _ => None,
+        }
+    }
 }
 
 impl Value_ {
@@ -581,22 +634,19 @@ impl Value_ {
 impl fmt::Display for BuiltinTypeName_ {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         use BuiltinTypeName_ as BT;
-        write!(
-            f,
-            "{}",
-            match self {
-                BT::Address => BT::ADDRESS,
-                BT::Signer => BT::SIGNER,
-                BT::U8 => BT::U_8,
-                BT::U16 => BT::U_16,
-                BT::U32 => BT::U_32,
-                BT::U64 => BT::U_64,
-                BT::U128 => BT::U_128,
-                BT::U256 => BT::U_256,
-                BT::Bool => BT::BOOL,
-                BT::Vector => BT::VECTOR,
-            }
-        )
+        write!(f, "{}", match self {
+            BT::Address => BT::ADDRESS,
+            BT::Signer => BT::SIGNER,
+            BT::U8 => BT::U_8,
+            BT::U16 => BT::U_16,
+            BT::U32 => BT::U_32,
+            BT::U64 => BT::U_64,
+            BT::U128 => BT::U_128,
+            BT::U256 => BT::U_256,
+            BT::Bool => BT::BOOL,
+            BT::Vector => BT::VECTOR,
+            BT::Fun => BT::FUN,
+        })
     }
 }
 
@@ -732,6 +782,7 @@ impl AstDebug for (FunctionName, &Function) {
             name,
             Function {
                 attributes,
+                inline,
                 visibility,
                 entry,
                 signature,
@@ -747,7 +798,11 @@ impl AstDebug for (FunctionName, &Function) {
         if let FunctionBody_::Native = &body.value {
             w.write("native ");
         }
-        w.write(&format!("fun {}", name));
+        if *inline {
+            w.write(&format!("inline fun {}", name));
+        } else {
+            w.write(&format!("fun {}", name));
+        }
         signature.ast_debug(w);
         if !acquires.is_empty() {
             w.write(" acquires ");
@@ -867,7 +922,7 @@ impl AstDebug for Type_ {
                     w.write("mut ");
                 }
                 s.ast_debug(w)
-            }
+            },
             Type_::Param(tp) => tp.ast_debug(w),
             Type_::Apply(abilities_opt, sp!(_, TypeName_::Multiple(_)), ss) => {
                 let w_ty = move |w: &mut AstWriter| {
@@ -884,7 +939,7 @@ impl AstDebug for Type_ {
                         })
                     }),
                 }
-            }
+            },
             Type_::Apply(abilities_opt, m, ss) => {
                 let w_ty = move |w: &mut AstWriter| {
                     m.ast_debug(w);
@@ -903,7 +958,7 @@ impl AstDebug for Type_ {
                         })
                     }),
                 }
-            }
+            },
             Type_::Var(tv) => w.write(&format!("#{}", tv.0)),
             Type_::Anything => w.write("_"),
             Type_::UnresolvedError => w.write("_|_"),
@@ -934,13 +989,13 @@ impl AstDebug for SequenceItem_ {
                 if let Some(ty) = ty_opt {
                     ty.ast_debug(w)
                 }
-            }
+            },
             I::Bind(sp!(_, bs), e) => {
                 w.write("let ");
                 bs.ast_debug(w);
                 w.write(" = ");
                 e.ast_debug(w);
-            }
+            },
         }
     }
 }
@@ -959,8 +1014,11 @@ impl AstDebug for Exp_ {
             E::Use(v) => w.write(&format!("{}", v)),
             E::Constant(None, c) => w.write(&format!("{}", c)),
             E::Constant(Some(m), c) => w.write(&format!("{}::{}", m, c)),
-            E::ModuleCall(m, f, tys_opt, sp!(_, rhs)) => {
+            E::ModuleCall(m, f, is_macro, tys_opt, sp!(_, rhs)) => {
                 w.write(&format!("{}::{}", m, f));
+                if *is_macro {
+                    w.write("!");
+                }
                 if let Some(ss) = tys_opt {
                     w.write("<");
                     ss.ast_debug(w);
@@ -969,13 +1027,19 @@ impl AstDebug for Exp_ {
                 w.write("(");
                 w.comma(rhs, |w, e| e.ast_debug(w));
                 w.write(")");
-            }
+            },
+            E::VarCall(var, sp!(_, rhs)) => {
+                w.write(&format!("{}", var));
+                w.write("(");
+                w.comma(rhs, |w, e| e.ast_debug(w));
+                w.write(")");
+            },
             E::Builtin(bf, sp!(_, rhs)) => {
                 bf.ast_debug(w);
                 w.write("(");
                 w.comma(rhs, |w, e| e.ast_debug(w));
                 w.write(")");
-            }
+            },
             E::Vector(_loc, ty_opt, sp!(_, elems)) => {
                 w.write("vector");
                 if let Some(ty) = ty_opt {
@@ -986,7 +1050,7 @@ impl AstDebug for Exp_ {
                 w.write("[");
                 w.comma(elems, |w, e| e.ast_debug(w));
                 w.write("]");
-            }
+            },
             E::Pack(m, s, tys_opt, fields) => {
                 w.write(&format!("{}::{}", m, s));
                 if let Some(ss) = tys_opt {
@@ -1001,7 +1065,7 @@ impl AstDebug for Exp_ {
                     e.ast_debug(w);
                 });
                 w.write("}");
-            }
+            },
             E::IfElse(b, t, f) => {
                 w.write("if (");
                 b.ast_debug(w);
@@ -1009,100 +1073,111 @@ impl AstDebug for Exp_ {
                 t.ast_debug(w);
                 w.write(" else ");
                 f.ast_debug(w);
-            }
+            },
             E::While(b, e) => {
                 w.write("while (");
                 b.ast_debug(w);
                 w.write(")");
                 e.ast_debug(w);
-            }
+            },
             E::Loop(e) => {
                 w.write("loop ");
                 e.ast_debug(w);
-            }
+            },
             E::Block(seq) => w.block(|w| seq.ast_debug(w)),
+            E::Lambda(sp!(_, bs), e) => {
+                w.write("|");
+                bs.ast_debug(w);
+                w.write("|");
+                e.ast_debug(w);
+            },
             E::ExpList(es) => {
                 w.write("(");
                 w.comma(es, |w, e| e.ast_debug(w));
                 w.write(")");
-            }
+            },
 
             E::Assign(sp!(_, lvalues), rhs) => {
                 lvalues.ast_debug(w);
                 w.write(" = ");
                 rhs.ast_debug(w);
-            }
+            },
             E::FieldMutate(ed, rhs) => {
                 ed.ast_debug(w);
                 w.write(" = ");
                 rhs.ast_debug(w);
-            }
+            },
             E::Mutate(lhs, rhs) => {
                 w.write("*");
                 lhs.ast_debug(w);
                 w.write(" = ");
                 rhs.ast_debug(w);
-            }
+            },
 
             E::Return(e) => {
                 w.write("return ");
                 e.ast_debug(w);
-            }
+            },
             E::Abort(e) => {
                 w.write("abort ");
                 e.ast_debug(w);
-            }
+            },
             E::Break => w.write("break"),
             E::Continue => w.write("continue"),
             E::Dereference(e) => {
                 w.write("*");
                 e.ast_debug(w)
-            }
+            },
             E::UnaryExp(op, e) => {
                 op.ast_debug(w);
                 w.write(" ");
                 e.ast_debug(w);
-            }
+            },
             E::BinopExp(l, op, r) => {
                 l.ast_debug(w);
                 w.write(" ");
                 op.ast_debug(w);
                 w.write(" ");
                 r.ast_debug(w)
-            }
+            },
             E::Borrow(mut_, e) => {
                 w.write("&");
                 if *mut_ {
                     w.write("mut ");
                 }
                 e.ast_debug(w);
-            }
+            },
             E::DerefBorrow(ed) => {
                 w.write("(&*)");
                 ed.ast_debug(w)
-            }
+            },
             E::Cast(e, ty) => {
                 w.write("(");
                 e.ast_debug(w);
                 w.write(" as ");
                 ty.ast_debug(w);
                 w.write(")");
-            }
+            },
             E::Annotate(e, ty) => {
                 w.write("(");
                 e.ast_debug(w);
                 w.write(": ");
                 ty.ast_debug(w);
                 w.write(")");
-            }
-            E::Spec(u, used_locals) => {
+            },
+            E::Spec(u, used_vars, used_func_ptrs) => {
                 w.write(&format!("spec #{}", u));
-                if !used_locals.is_empty() {
-                    w.write("uses [");
-                    w.comma(used_locals, |w, n| w.write(&format!("{}", n)));
+                if !used_vars.is_empty() {
+                    w.write(" uses [");
+                    w.comma(used_vars, |w, n| w.write(&format!("{}", n)));
                     w.write("]");
                 }
-            }
+                if !used_func_ptrs.is_empty() {
+                    w.write(" applies [");
+                    w.comma(used_func_ptrs, |w, n| w.write(&format!("{}", n)));
+                    w.write("]");
+                }
+            },
             E::UnresolvedError => w.write("_|_"),
         }
     }
@@ -1137,7 +1212,7 @@ impl AstDebug for ExpDotted_ {
             D::Dot(e, n) => {
                 e.ast_debug(w);
                 w.write(&format!(".{}", n))
-            }
+            },
         }
     }
 }
@@ -1175,7 +1250,7 @@ impl AstDebug for LValue_ {
                     b.ast_debug(w);
                 });
                 w.write("}");
-            }
+            },
         }
     }
 }

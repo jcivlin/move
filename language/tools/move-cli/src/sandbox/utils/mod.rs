@@ -82,7 +82,7 @@ pub(crate) fn explain_publish_changeset(changeset: &ChangeSet) {
                     "Publishing a new module {} (wrote {:?} bytes)",
                     module_id, bytes_written
                 );
-            }
+            },
             Op::Modify(module_bytes) => {
                 let bytes_written = addr.len() + name.len() + module_bytes.len();
                 total_bytes_written += bytes_written;
@@ -91,10 +91,10 @@ pub(crate) fn explain_publish_changeset(changeset: &ChangeSet) {
                     "Updating an existing module {} (wrote {:?} bytes)",
                     module_id, bytes_written
                 );
-            }
+            },
             Op::Delete => {
                 panic!("Deleting a module is not supported")
-            }
+            },
         }
     }
     println!(
@@ -132,19 +132,19 @@ fn print_struct_diff_with_indent(
                 for line in lines {
                     println!(" {}{}", indent_str, line);
                 }
-            }
+            },
             Difference::Add(ref x) => {
                 let lines = x.split('\n');
                 for line in lines {
                     println!("{}{}{}", "+".green(), indent_str, line.green());
                 }
-            }
+            },
             Difference::Rem(ref x) => {
                 let lines = x.split('\n');
                 for line in lines {
                     println!("{}{}{}", "-".red(), indent_str, line.red());
                 }
-            }
+            },
         }
     }
 }
@@ -198,7 +198,7 @@ pub(crate) fn explain_execution_effects(
                     let resource =
                         MoveValueAnnotator::new(state).view_resource(struct_tag, blob)?;
                     print_struct_with_indent(&resource, 6)
-                }
+                },
                 Op::Modify(blob) => {
                     bytes_to_write += blob.len();
                     println!(
@@ -215,7 +215,7 @@ pub(crate) fn explain_execution_effects(
                         MoveValueAnnotator::new(state).view_resource(struct_tag, blob)?;
 
                     print_struct_diff_with_indent(&resource_old, &resource_new, 8)
-                }
+                },
                 Op::Delete => {
                     println!(
                         "Deleted type {} (wrote {:?} bytes)",
@@ -228,7 +228,7 @@ pub(crate) fn explain_execution_effects(
                     let resource_old =
                         MoveValueAnnotator::new(state).view_resource(struct_tag, &resource_data)?;
                     print_struct_with_indent(&resource_old, 6);
-                }
+                },
             };
             total_bytes_written += bytes_to_write;
         }
@@ -258,7 +258,7 @@ pub(crate) fn maybe_commit_effects(
                 match blob_op {
                     Op::New(blob) | Op::Modify(blob) => {
                         state.save_resource(addr, struct_tag, &blob)?
-                    }
+                    },
                     Op::Delete => state.delete_resource(addr, struct_tag)?,
                 }
             }
@@ -335,13 +335,13 @@ pub(crate) fn explain_publish_error(
     let module_id = module.self_id();
     let error_clone = error.clone();
     match error.into_vm_status() {
-        VMStatus::Error(DUPLICATE_MODULE_NAME) => {
+        VMStatus::Error(DUPLICATE_MODULE_NAME, _) => {
             println!(
                 "Module {} exists already. Re-run without --no-republish to publish anyway.",
                 module_id
             );
-        }
-        VMStatus::Error(BACKWARD_INCOMPATIBLE_MODULE_UPDATE) => {
+        },
+        VMStatus::Error(BACKWARD_INCOMPATIBLE_MODULE_UPDATE, _) => {
             println!("Breaking change detected--publishing aborted. Re-run with --ignore-breaking-changes to publish anyway.");
 
             let old_module = state.get_module_by_id(&module_id)?.unwrap();
@@ -363,8 +363,8 @@ pub(crate) fn explain_publish_error(
                 // but this is not easy to check without walking the global state and looking for everything
                 println!("Linking API for structs/functions of module {} has changed. Need to redeploy all dependent modules.", module_id)
             }
-        }
-        VMStatus::Error(CYCLIC_MODULE_DEPENDENCY) => {
+        },
+        VMStatus::Error(CYCLIC_MODULE_DEPENDENCY, _) => {
             println!(
                 "Publishing module {} introduces cyclic dependencies.",
                 module_id
@@ -410,8 +410,8 @@ pub(crate) fn explain_publish_error(
                 }
             }
             println!("Re-run with --ignore-breaking-changes to publish anyway.")
-        }
-        VMStatus::Error(MISSING_DEPENDENCY) => {
+        },
+        VMStatus::Error(MISSING_DEPENDENCY, _) => {
             let err_indices = error_clone.indices();
             let mut diags = Diagnostics::new();
             for (ind_kind, table_ind) in err_indices {
@@ -440,13 +440,13 @@ pub(crate) fn explain_publish_error(
                 }
             }
             report_diagnostics(&files, diags)
-        }
-        VMStatus::Error(status_code) => {
+        },
+        VMStatus::Error(status_code, _) => {
             println!("Publishing failed with unexpected error {:?}", status_code)
-        }
+        },
         VMStatus::Executed | VMStatus::MoveAbort(..) | VMStatus::ExecutionFailure { .. } => {
             unreachable!()
-        }
+        },
     }
 
     Ok(())
@@ -473,7 +473,9 @@ pub(crate) fn explain_execution_error(
                 abort_code, id
             );
 
-            if let Some(error_desc) = error_descriptions.get_explanation(&id, abort_code) {
+            if let Some(error_desc) =
+                error_descriptions.get_explanation(&id.to_string(), abort_code)
+            {
                 println!(
                     " Abort code details:\nName: {}\nDescription:{}",
                     error_desc.code_name, error_desc.code_description,
@@ -481,19 +483,20 @@ pub(crate) fn explain_execution_error(
             } else {
                 println!()
             }
-        }
+        },
         VMStatus::MoveAbort(AbortLocation::Script, abort_code) => {
             // TODO: map to source code location
             println!(
                 "Execution aborted with code {} in transaction script",
                 abort_code
             )
-        }
+        },
         VMStatus::ExecutionFailure {
             status_code,
             location,
             function,
             code_offset,
+            ..
         } => {
             let status_explanation = match status_code {
                 RESOURCE_ALREADY_EXISTS => "a RESOURCE_ALREADY_EXISTS error (i.e., \
@@ -524,22 +527,24 @@ pub(crate) fn explain_execution_error(
                         id,
                         state.resolve_function(&id, function)?.unwrap()
                     )
-                }
+                },
                 AbortLocation::Script => "script".to_string(),
             };
             println!(
                 "Execution failed because of {} in {} at code offset {}",
                 status_explanation, location_explanation, code_offset
             )
-        }
-        VMStatus::Error(NUMBER_OF_TYPE_ARGUMENTS_MISMATCH) => println!(
+        },
+        VMStatus::Error(NUMBER_OF_TYPE_ARGUMENTS_MISMATCH, _) => println!(
             "Execution failed with incorrect number of type arguments: script expected {:?}, but \
              found {:?}",
             script_type_parameters.len(),
             vm_type_args.len()
         ),
-        VMStatus::Error(TYPE_MISMATCH) => explain_type_error(script_parameters, signers, txn_args),
-        VMStatus::Error(LINKER_ERROR) => {
+        VMStatus::Error(TYPE_MISMATCH, _) => {
+            explain_type_error(script_parameters, signers, txn_args)
+        },
+        VMStatus::Error(LINKER_ERROR, _) => {
             // TODO: is this the only reason we can see LINKER_ERROR?
             // Can we also see it if someone manually deletes modules in storage?
             println!(
@@ -547,10 +552,10 @@ pub(crate) fn explain_execution_error(
                  0x1::M:T` when there is no module named M at 0x1 or no type named T in module \
                  0x1::M)"
             );
-        }
-        VMStatus::Error(status_code) => {
+        },
+        VMStatus::Error(status_code, _) => {
             println!("Execution failed with unexpected error {:?}", status_code)
-        }
+        },
         VMStatus::Executed => unreachable!(),
     }
     Ok(())

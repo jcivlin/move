@@ -80,10 +80,11 @@ pub enum Tok {
     Friend,
     NumSign,
     AtSign,
+    Inline,
 }
 
 impl fmt::Display for Tok {
-    fn fmt<'f>(&self, formatter: &mut fmt::Formatter<'f>) -> Result<(), fmt::Error> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use Tok::*;
         let s = match *self {
             EOF => "[end-of-file]",
@@ -134,6 +135,7 @@ impl fmt::Display for Tok {
             Invariant => "invariant",
             Let => "let",
             Loop => "loop",
+            Inline => "inline",
             Module => "module",
             Move => "move",
             Native => "native",
@@ -417,7 +419,7 @@ fn find_token(
         Some(next_char) => next_char,
         None => {
             return Ok((Tok::EOF, 0));
-        }
+        },
     };
     let (tok, len) = match c {
         '0'..='9' => {
@@ -432,7 +434,7 @@ fn find_token(
             } else {
                 get_decimal_number(text)
             }
-        }
+        },
         'A'..='Z' | 'a'..='z' | '_' => {
             let is_hex = text.starts_with("x\"");
             if is_hex || text.starts_with("b\"") {
@@ -449,13 +451,13 @@ fn find_token(
                             },
                             (loc, "Missing closing quote (\") after byte string")
                         )));
-                    }
+                    },
                 }
             } else {
                 let len = get_name_len(text);
                 (get_name_token(&text[..len]), len)
             }
-        }
+        },
         '&' => {
             if text.starts_with("&mut ") {
                 (Tok::AmpMut, 5)
@@ -464,14 +466,14 @@ fn find_token(
             } else {
                 (Tok::Amp, 1)
             }
-        }
+        },
         '|' => {
             if text.starts_with("||") {
                 (Tok::PipePipe, 2)
             } else {
                 (Tok::Pipe, 1)
             }
-        }
+        },
         '=' => {
             if text.starts_with("==>") {
                 (Tok::EqualEqualGreater, 3)
@@ -480,14 +482,14 @@ fn find_token(
             } else {
                 (Tok::Equal, 1)
             }
-        }
+        },
         '!' => {
             if text.starts_with("!=") {
                 (Tok::ExclaimEqual, 2)
             } else {
                 (Tok::Exclaim, 1)
             }
-        }
+        },
         '<' => {
             if text.starts_with("<==>") {
                 (Tok::LessEqualEqualGreater, 4)
@@ -498,7 +500,7 @@ fn find_token(
             } else {
                 (Tok::Less, 1)
             }
-        }
+        },
         '>' => {
             if text.starts_with(">=") {
                 (Tok::GreaterEqual, 2)
@@ -507,14 +509,14 @@ fn find_token(
             } else {
                 (Tok::Greater, 1)
             }
-        }
+        },
         ':' => {
             if text.starts_with("::") {
                 (Tok::ColonColon, 2)
             } else {
                 (Tok::Colon, 1)
             }
-        }
+        },
         '%' => (Tok::Percent, 1),
         '(' => (Tok::LParen, 1),
         ')' => (Tok::RParen, 1),
@@ -530,7 +532,7 @@ fn find_token(
             } else {
                 (Tok::Period, 1)
             }
-        }
+        },
         '/' => (Tok::Slash, 1),
         ';' => (Tok::Semicolon, 1),
         '^' => (Tok::Caret, 1),
@@ -544,7 +546,7 @@ fn find_token(
                 Syntax::InvalidCharacter,
                 (loc, format!("Invalid character: '{}'", c))
             )));
-        }
+        },
     };
 
     Ok((tok, len))
@@ -627,6 +629,7 @@ fn get_name_token(name: &str) -> Tok {
         "invariant" => Tok::Invariant,
         "let" => Tok::Let,
         "loop" => Tok::Loop,
+        "inline" => Tok::Inline,
         "module" => Tok::Module,
         "move" => Tok::Move,
         "native" => Tok::Native,

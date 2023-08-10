@@ -2,33 +2,30 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
-use itertools::Itertools;
-use move_core_types::{
-    identifier::IdentStr, language_storage::ModuleId, metadata::Metadata, value::MoveValue,
-};
-use std::collections::{BTreeMap, BTreeSet};
-
-use move_model::{
-    emit, emitln,
-    model::{FunId, FunctionEnv, GlobalEnv, Loc, QualifiedId, QualifiedInstId},
-    ty::Type,
-};
-
 use crate::{
     abi_move_metadata::generate_abi_move_metadata,
     abi_signature::{from_event_sig, from_solidity_sig},
     attributes,
-    context::Context,
+    context::{Context, Contract},
     functions::FunctionGenerator,
     solidity_ty::SoliditySignature,
     yul_functions::YulFunction,
     Options,
 };
-
-use crate::context::Contract;
-use move_model::model::{ModuleEnv, StructId};
+use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
+use itertools::Itertools;
+use move_core_types::{
+    identifier::IdentStr, language_storage::ModuleId, metadata::Metadata, value::MoveValue,
+};
+use move_model::{
+    emit, emitln,
+    model::{
+        FunId, FunctionEnv, GlobalEnv, Loc, ModuleEnv, QualifiedId, QualifiedInstId, StructId,
+    },
+    ty::Type,
+};
 use sha3::{Digest, Keccak256};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Mutable state of the generator.
 #[derive(Default)]
@@ -339,8 +336,8 @@ impl Generator {
                 emit!(ctx.writer, "let $arg{} := ", idx);
                 match arg {
                     MoveValue::Address(addr) => {
-                        emitln!(ctx.writer, "{}", addr.to_hex_literal());
-                    }
+                        emitln!(ctx.writer, "0x{}", addr.short_str_lossless());
+                    },
                     _ => unreachable!(
                         "only address literals are allowed as test arguments currently"
                     ),
@@ -401,7 +398,7 @@ impl Generator {
             if let Some(storage) = &self.storage_type {
                 // The creator function must return a value of the storage type.
                 let storage_ty = storage.to_type();
-                if creator.get_return_count() != 1 || creator.get_return_type(0) != storage_ty {
+                if creator.get_return_count() != 1 || creator.get_result_type_at(0) != storage_ty {
                     ctx.env.error(
                         &creator.get_loc(),
                         &format!("creator function for contract with #[storage] must return value of type `{}`", storage_ty.display(&ctx.env.get_type_display_ctx()))

@@ -3,20 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::loader::Loader;
-
 use move_binary_format::errors::*;
 use move_core_types::{
     account_address::AccountAddress,
-    effects::{AccountChangeSet, ChangeSet, Event, Op},
+    effects::{AccountChanges, ChangeSet, Changes, Event, Op},
     gas_algebra::NumBytes,
     identifier::Identifier,
     language_storage::{ModuleId, TypeTag},
+    metadata::Metadata,
     resolver::MoveResolver,
     value::MoveTypeLayout,
     vm_status::StatusCode,
 };
 use move_vm_types::{
-    data_store::DataStore,
     loaded_data::runtime_types::Type,
     values::{GlobalValue, Value},
 };
@@ -49,20 +48,18 @@ impl AccountDataCache {
 /// The Move VM takes a `DataStore` in input and this is the default and correct implementation
 /// for a data store related to a transaction. Clients should create an instance of this type
 /// and pass it to the Move VM.
-pub(crate) struct TransactionDataCache<'r, 'l, S> {
-    remote: &'r S,
-    loader: &'l Loader,
+pub(crate) struct TransactionDataCache<'r> {
+    remote: &'r dyn MoveResolver,
     account_map: BTreeMap<AccountAddress, AccountDataCache>,
     event_data: Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)>,
 }
 
-impl<'r, 'l, S: MoveResolver> TransactionDataCache<'r, 'l, S> {
+impl<'r> TransactionDataCache<'r> {
     /// Create a `TransactionDataCache` with a `RemoteCache` that provides access to data
     /// not updated in the transaction.
-    pub(crate) fn new(remote: &'r S, loader: &'l Loader) -> Self {
+    pub(crate) fn new(remote: &'r dyn MoveResolver) -> Self {
         TransactionDataCache {
             remote,
-            loader,
             account_map: BTreeMap::new(),
             event_data: vec![],
         }
@@ -72,8 +69,25 @@ impl<'r, 'l, S: MoveResolver> TransactionDataCache<'r, 'l, S> {
     /// published modules.
     ///
     /// Gives all proper guarantees on lifetime of global data as well.
-    pub(crate) fn into_effects(self) -> PartialVMResult<(ChangeSet, Vec<Event>)> {
-        let mut change_set = ChangeSet::new();
+    pub(crate) fn into_effects(self, loader: &Loader) -> PartialVMResult<(ChangeSet, Vec<Event>)> {
+        let resource_converter =
+            |value: Value, layout: MoveTypeLayout| -> PartialVMResult<Vec<u8>> {
+                value.simple_serialize(&layout).ok_or_else(|| {
+                    PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
+                        .with_message(format!("Error when serializing resource {}.", value))
+                })
+            };
+        self.into_custom_effects(&resource_converter, loader)
+    }
+
+    /// Same like `into_effects`, but also allows clients to select the format of
+    /// produced effects for resources.
+    pub(crate) fn into_custom_effects<Resource>(
+        self,
+        resource_converter: &dyn Fn(Value, MoveTypeLayout) -> PartialVMResult<Resource>,
+        loader: &Loader,
+    ) -> PartialVMResult<(Changes<Vec<u8>, Resource>, Vec<Event>)> {
+        let mut change_set = Changes::new();
         for (addr, account_data_cache) in self.account_map.into_iter() {
             let mut modules = BTreeMap::new();
             for (module_name, (module_blob, is_republishing)) in account_data_cache.module_map {
@@ -87,39 +101,22 @@ impl<'r, 'l, S: MoveResolver> TransactionDataCache<'r, 'l, S> {
 
             let mut resources = BTreeMap::new();
             for (ty, (layout, gv)) in account_data_cache.data_map {
-                let op = match gv.into_effect() {
-                    Some(op) => op,
-                    None => continue,
-                };
-
-                let struct_tag = match self.loader.type_to_type_tag(&ty)? {
-                    TypeTag::Struct(struct_tag) => *struct_tag,
-                    _ => return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)),
-                };
-
-                match op {
-                    Op::New(val) => {
-                        let resource_blob = val
-                            .simple_serialize(&layout)
-                            .ok_or_else(|| PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR))?;
-                        resources.insert(struct_tag, Op::New(resource_blob));
-                    }
-                    Op::Modify(val) => {
-                        let resource_blob = val
-                            .simple_serialize(&layout)
-                            .ok_or_else(|| PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR))?;
-                        resources.insert(struct_tag, Op::Modify(resource_blob));
-                    }
-                    Op::Delete => {
-                        resources.insert(struct_tag, Op::Delete);
-                    }
+                if let Some(op) = gv.into_effect_with_layout(layout) {
+                    let struct_tag = match loader.type_to_type_tag(&ty)? {
+                        TypeTag::Struct(struct_tag) => *struct_tag,
+                        _ => return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)),
+                    };
+                    resources.insert(
+                        struct_tag,
+                        op.and_then(|(value, layout)| resource_converter(value, layout))?,
+                    );
                 }
             }
             if !modules.is_empty() || !resources.is_empty() {
                 change_set
                     .add_account_changeset(
                         addr,
-                        AccountChangeSet::from_modules_resources(modules, resources),
+                        AccountChanges::from_modules_resources(modules, resources),
                     )
                     .expect("accounts should be unique");
             }
@@ -127,7 +124,7 @@ impl<'r, 'l, S: MoveResolver> TransactionDataCache<'r, 'l, S> {
 
         let mut events = vec![];
         for (guid, seq_num, ty, ty_layout, val) in self.event_data {
-            let ty_tag = self.loader.type_to_type_tag(&ty)?;
+            let ty_tag = loader.type_to_type_tag(&ty)?;
             let blob = val
                 .simple_serialize(&ty_layout)
                 .ok_or_else(|| PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR))?;
@@ -159,38 +156,50 @@ impl<'r, 'l, S: MoveResolver> TransactionDataCache<'r, 'l, S> {
         }
         map.get_mut(k).unwrap()
     }
-}
 
-// `DataStore` implementation for the `TransactionDataCache`
-impl<'r, 'l, S: MoveResolver> DataStore for TransactionDataCache<'r, 'l, S> {
-    // Retrieve data from the local cache or loads it from the remote cache into the local cache.
+    // Retrieves data from the local cache or loads it from the remote cache into the local cache.
     // All operations on the global data are based on this API and they all load the data
     // into the cache.
-    fn load_resource(
+    pub(crate) fn load_resource(
         &mut self,
+        loader: &Loader,
         addr: AccountAddress,
         ty: &Type,
-    ) -> PartialVMResult<(&mut GlobalValue, Option<Option<NumBytes>>)> {
+    ) -> PartialVMResult<(&mut GlobalValue, Option<NumBytes>)> {
         let account_cache = Self::get_mut_or_insert_with(&mut self.account_map, &addr, || {
             (addr, AccountDataCache::new())
         });
 
         let mut load_res = None;
         if !account_cache.data_map.contains_key(ty) {
-            let ty_tag = match self.loader.type_to_type_tag(ty)? {
+            let ty_tag = match loader.type_to_type_tag(ty)? {
                 TypeTag::Struct(s_tag) => s_tag,
                 _ =>
                 // non-struct top-level value; can't happen
                 {
                     return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR))
-                }
+                },
             };
             // TODO(Gas): Shall we charge for this?
-            let ty_layout = self.loader.type_to_type_layout(ty)?;
+            let ty_layout = loader.type_to_type_layout(ty)?;
 
-            let gv = match self.remote.get_resource(&addr, &ty_tag) {
-                Ok(Some(blob)) => {
-                    load_res = Some(Some(NumBytes::new(blob.len() as u64)));
+            let module = loader.get_module(&ty_tag.module_id());
+            let metadata: &[Metadata] = match &module {
+                Some(module) => &module.module().metadata,
+                None => &[],
+            };
+
+            let (data, bytes_loaded) = self
+                .remote
+                .get_resource_with_metadata(&addr, &ty_tag, metadata)
+                .map_err(|err| {
+                    let msg = format!("Unexpected storage error: {:?}", err);
+                    PartialVMError::new(StatusCode::STORAGE_ERROR).with_message(msg)
+                })?;
+            load_res = Some(NumBytes::new(bytes_loaded as u64));
+
+            let gv = match data {
+                Some(blob) => {
                     let val = match Value::simple_deserialize(&blob, &ty_layout) {
                         Some(val) => val,
                         None => {
@@ -200,22 +209,12 @@ impl<'r, 'l, S: MoveResolver> DataStore for TransactionDataCache<'r, 'l, S> {
                                 StatusCode::FAILED_TO_DESERIALIZE_RESOURCE,
                             )
                             .with_message(msg));
-                        }
+                        },
                     };
 
                     GlobalValue::cached(val)?
-                }
-                Ok(None) => {
-                    load_res = Some(None);
-                    GlobalValue::none()
-                }
-                Err(err) => {
-                    let msg = format!("Unexpected storage error: {:?}", err);
-                    return Err(
-                        PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                            .with_message(msg),
-                    );
-                }
+                },
+                None => GlobalValue::none(),
             };
 
             account_cache.data_map.insert(ty.clone(), (ty_layout, gv));
@@ -231,7 +230,7 @@ impl<'r, 'l, S: MoveResolver> DataStore for TransactionDataCache<'r, 'l, S> {
         ))
     }
 
-    fn load_module(&self, module_id: &ModuleId) -> VMResult<Vec<u8>> {
+    pub(crate) fn load_module(&self, module_id: &ModuleId) -> VMResult<Vec<u8>> {
         if let Some(account_cache) = self.account_map.get(module_id.address()) {
             if let Some((blob, _is_republishing)) = account_cache.module_map.get(module_id.name()) {
                 return Ok(blob.clone());
@@ -244,16 +243,14 @@ impl<'r, 'l, S: MoveResolver> DataStore for TransactionDataCache<'r, 'l, S> {
                 .finish(Location::Undefined)),
             Err(err) => {
                 let msg = format!("Unexpected storage error: {:?}", err);
-                Err(
-                    PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                        .with_message(msg)
-                        .finish(Location::Undefined),
-                )
-            }
+                Err(PartialVMError::new(StatusCode::STORAGE_ERROR)
+                    .with_message(msg)
+                    .finish(Location::Undefined))
+            },
         }
     }
 
-    fn publish_module(
+    pub(crate) fn publish_module(
         &mut self,
         module_id: &ModuleId,
         blob: Vec<u8>,
@@ -271,7 +268,7 @@ impl<'r, 'l, S: MoveResolver> DataStore for TransactionDataCache<'r, 'l, S> {
         Ok(())
     }
 
-    fn exists_module(&self, module_id: &ModuleId) -> VMResult<bool> {
+    pub(crate) fn exists_module(&self, module_id: &ModuleId) -> VMResult<bool> {
         if let Some(account_cache) = self.account_map.get(module_id.address()) {
             if account_cache.module_map.contains_key(module_id.name()) {
                 return Ok(true);
@@ -286,18 +283,16 @@ impl<'r, 'l, S: MoveResolver> DataStore for TransactionDataCache<'r, 'l, S> {
             .is_some())
     }
 
-    fn emit_event(
+    #[allow(clippy::unit_arg)]
+    pub(crate) fn emit_event(
         &mut self,
+        loader: &Loader,
         guid: Vec<u8>,
         seq_num: u64,
         ty: Type,
         val: Value,
     ) -> PartialVMResult<()> {
-        let ty_layout = self.loader.type_to_type_layout(&ty)?;
+        let ty_layout = loader.type_to_type_layout(&ty)?;
         Ok(self.event_data.push((guid, seq_num, ty, ty_layout, val)))
-    }
-
-    fn events(&self) -> &Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)> {
-        &self.event_data
     }
 }

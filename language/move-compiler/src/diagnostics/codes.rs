@@ -150,11 +150,10 @@ codes!(
         UnboundVariable: { msg: "unbound variable", severity: BlockingError },
         UnboundField: { msg: "unbound field", severity: BlockingError },
         ReservedName: { msg: "invalid use of reserved name", severity: BlockingError },
-        UnboundMacro: { msg: "unbound macro", severity: BlockingError },
     ],
     // errors for typing rules. mostly typing/translate
     TypeSafety: [
-        Visibility: { msg: "restricted visibility", severity: NonblockingError },
+        Visibility: { msg: "restricted visibility", severity: BlockingError },
         ScriptContext: { msg: "requires script context", severity: NonblockingError },
         BuiltinOperation: { msg: "built-in operation not supported", severity: BlockingError },
         ExpectedBaseType: { msg: "expected a single non-reference type", severity: BlockingError },
@@ -182,6 +181,8 @@ codes!(
                 (NOTE: this may become an error in the future)",
             severity: Warning
         },
+        InvalidCallTarget: { msg: "invalid call target", severity: BlockingError },
+        InvalidFunctionType: { msg: "invalid usage of function type", severity: BlockingError },
     ],
     // errors for ability rules. mostly typing/translate
     AbilitySafety: [
@@ -235,10 +236,17 @@ codes!(
     Bug: [
         BytecodeGeneration: { msg: "BYTECODE GENERATION FAILED", severity: Bug },
         BytecodeVerification: { msg: "BYTECODE VERIFICATION FAILED", severity: Bug },
+        Unimplemented: { msg: "Not yet implemented", severity: BlockingError },
     ],
     Derivation: [
         DeriveFailed: { msg: "attribute derivation failed", severity: BlockingError }
-    ]
+    ],
+    // errors for inlining
+    Inlining: [
+        Recursion: { msg: "recursion during function inlining not allowed", severity: BlockingError },
+        AfterExpansion: {  msg: "Inlined code invalid in this context", severity: BlockingError },
+        Unsupported: { msg: "feature not supported in inlined functions", severity: BlockingError },
+    ],
 );
 
 //**************************************************************************************************
@@ -274,8 +282,8 @@ impl DiagnosticInfo {
 }
 
 impl Severity {
-    pub const MIN: Self = Self::Warning;
     pub const MAX: Self = Self::Bug;
+    pub const MIN: Self = Self::Warning;
 
     pub fn into_codespan_severity(self) -> codespan_reporting::diagnostic::Severity {
         use codespan_reporting::diagnostic::Severity as CSRSeverity;

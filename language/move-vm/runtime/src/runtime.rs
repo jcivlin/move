@@ -6,10 +6,10 @@ use crate::{
     config::VMConfig,
     data_cache::TransactionDataCache,
     interpreter::Interpreter,
-    loader::{Function, Loader},
+    loader::{Function, LoadedFunction, Loader},
     native_extensions::NativeContextExtensions,
     native_functions::{NativeFunction, NativeFunctions},
-    session::{LoadedFunctionInstantiation, SerializedReturnValues, Session},
+    session::{LoadedFunctionInstantiation, SerializedReturnValues},
 };
 use move_binary_format::{
     access::ModuleAccess,
@@ -23,18 +23,15 @@ use move_core_types::{
     account_address::AccountAddress,
     identifier::{IdentStr, Identifier},
     language_storage::{ModuleId, TypeTag},
-    resolver::MoveResolver,
     value::MoveTypeLayout,
     vm_status::StatusCode,
 };
 use move_vm_types::{
-    data_store::DataStore,
     gas::GasMeter,
     loaded_data::runtime_types::Type,
     values::{Locals, Reference, VMValueCast, Value},
 };
 use std::{borrow::Borrow, collections::BTreeSet, sync::Arc};
-use tracing::warn;
 
 /// An instantiation of the MoveVM.
 pub(crate) struct VMRuntime {
@@ -51,27 +48,11 @@ impl VMRuntime {
         })
     }
 
-    pub fn new_session<'r, S: MoveResolver>(&self, remote: &'r S) -> Session<'r, '_, S> {
-        self.new_session_with_extensions(remote, NativeContextExtensions::default())
-    }
-
-    pub fn new_session_with_extensions<'r, S: MoveResolver>(
-        &self,
-        remote: &'r S,
-        native_extensions: NativeContextExtensions<'r>,
-    ) -> Session<'r, '_, S> {
-        Session {
-            runtime: self,
-            data_cache: TransactionDataCache::new(remote, &self.loader),
-            native_extensions,
-        }
-    }
-
     pub(crate) fn publish_module_bundle(
         &self,
         modules: Vec<Vec<u8>>,
         sender: AccountAddress,
-        data_store: &mut impl DataStore,
+        data_store: &mut TransactionDataCache,
         _gas_meter: &mut impl GasMeter,
         compat: Compatibility,
     ) -> VMResult<()> {
@@ -89,9 +70,13 @@ impl VMRuntime {
         {
             Ok(modules) => modules,
             Err(err) => {
-                warn!("[VM] module deserialization failed {:?}", err);
-                return Err(err.finish(Location::Undefined));
-            }
+                return Err(err
+                    .append_message_with_separator(
+                        '\n',
+                        "[VM] module deserialization failed".to_string(),
+                    )
+                    .finish(Location::Undefined));
+            },
         };
 
         // Make sure all modules' self addresses matches the transaction sender. The self address is
@@ -208,21 +193,19 @@ impl VMRuntime {
         let layout = match self.loader.type_to_type_layout(ty) {
             Ok(layout) => layout,
             Err(_err) => {
-                warn!("[VM] failed to get layout from type");
                 return Err(PartialVMError::new(
                     StatusCode::INVALID_PARAM_TYPE_FOR_DESERIALIZATION,
-                ));
-            }
+                )
+                .with_message("[VM] failed to get layout from type".to_string()));
+            },
         };
 
         match Value::simple_deserialize(arg.borrow(), &layout) {
             Some(val) => Ok(val),
-            None => {
-                warn!("[VM] failed to deserialize argument");
-                Err(PartialVMError::new(
-                    StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT,
-                ))
-            }
+            None => Err(
+                PartialVMError::new(StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT)
+                    .with_message("[VM] failed to deserialize argument".to_string()),
+            ),
         }
     }
 
@@ -253,9 +236,15 @@ impl VMRuntime {
             .enumerate()
             .map(|(idx, (arg_ty, arg_bytes))| match &arg_ty {
                 Type::MutableReference(inner_t) | Type::Reference(inner_t) => {
-                    dummy_locals.store_loc(idx, self.deserialize_value(inner_t, arg_bytes)?)?;
+                    dummy_locals.store_loc(
+                        idx,
+                        self.deserialize_value(inner_t, arg_bytes)?,
+                        self.loader
+                            .vm_config()
+                            .enable_invariant_violation_check_in_swap_loc,
+                    )?;
                     dummy_locals.borrow_loc(idx)
-                }
+                },
                 _ => self.deserialize_value(&arg_ty, arg_bytes),
             })
             .collect::<PartialVMResult<Vec<_>>>()?;
@@ -276,7 +265,7 @@ impl VMRuntime {
                 })?;
                 let inner_value = ref_value.read_ref()?;
                 (&**inner, inner_value)
-            }
+            },
             _ => (ty, value),
         };
 
@@ -316,6 +305,7 @@ impl VMRuntime {
             .collect()
     }
 
+    #[allow(clippy::needless_collect)]
     fn execute_function_impl(
         &self,
         func: Arc<Function>,
@@ -323,7 +313,7 @@ impl VMRuntime {
         param_types: Vec<Type>,
         return_types: Vec<Type>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl DataStore,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
     ) -> VMResult<SerializedReturnValues> {
@@ -366,7 +356,12 @@ impl VMRuntime {
             .into_iter()
             .map(|(idx, ty)| {
                 // serialize return values first in the case that a value points into this local
-                let local_val = dummy_locals.move_loc(idx)?;
+                let local_val = dummy_locals.move_loc(
+                    idx,
+                    self.loader
+                        .vm_config()
+                        .enable_invariant_violation_check_in_swap_loc,
+                )?;
                 let (bytes, layout) = self.serialize_return_value(&ty, local_val)?;
                 Ok((idx as LocalIndex, bytes, layout))
             })
@@ -388,11 +383,44 @@ impl VMRuntime {
         function_name: &IdentStr,
         ty_args: Vec<TypeTag>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl DataStore,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         bypass_declared_entry_check: bool,
     ) -> VMResult<SerializedReturnValues> {
+        // load the function
+        let (module, function, instantiation) =
+            self.loader
+                .load_function(module, function_name, &ty_args, data_store)?;
+
+        self.execute_function_instantiation(
+            LoadedFunction { module, function },
+            instantiation,
+            serialized_args,
+            data_store,
+            gas_meter,
+            extensions,
+            bypass_declared_entry_check,
+        )
+    }
+
+    pub(crate) fn execute_function_instantiation(
+        &self,
+        func: LoadedFunction,
+        function_instantiation: LoadedFunctionInstantiation,
+        serialized_args: Vec<impl Borrow<[u8]>>,
+        data_store: &mut TransactionDataCache,
+        gas_meter: &mut impl GasMeter,
+        extensions: &mut NativeContextExtensions,
+        bypass_declared_entry_check: bool,
+    ) -> VMResult<SerializedReturnValues> {
+        // load the function
+        let LoadedFunctionInstantiation {
+            type_arguments,
+            parameters,
+            return_,
+        } = function_instantiation;
+
         use move_binary_format::{binary_views::BinaryIndexedView, file_format::SignatureIndex};
         fn check_is_entry(
             _resolver: &BinaryIndexedView,
@@ -408,34 +436,23 @@ impl VMRuntime {
                 ))
             }
         }
-
         let additional_signature_checks = if bypass_declared_entry_check {
             move_bytecode_verifier::no_additional_script_signature_checks
         } else {
             check_is_entry
         };
-        // load the function
-        let (
-            module,
-            func,
-            LoadedFunctionInstantiation {
-                type_arguments,
-                parameters,
-                return_,
-            },
-        ) = self
-            .loader
-            .load_function(module, function_name, &ty_args, data_store)?;
+
+        let LoadedFunction { module, function } = func;
 
         script_signature::verify_module_function_signature_by_name(
             module.module(),
-            function_name,
+            IdentStr::new(function.as_ref().name()).expect(""),
             additional_signature_checks,
         )?;
 
         // execute the function
         self.execute_function_impl(
-            func,
+            function,
             type_arguments,
             parameters,
             return_,
@@ -452,7 +469,7 @@ impl VMRuntime {
         script: impl Borrow<[u8]>,
         ty_args: Vec<TypeTag>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl DataStore,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
     ) -> VMResult<SerializedReturnValues> {

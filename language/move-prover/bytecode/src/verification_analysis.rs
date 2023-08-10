@@ -7,14 +7,14 @@
 //! each function as well as collect information on how these invariants should be handled (i.e.,
 //! checked after bytecode, checked at function exit, or deferred to caller).
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{self, Formatter},
+use crate::{
+    function_target::{FunctionData, FunctionTarget},
+    function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
+    options::ProverOptions,
+    usage_analysis, COMPILED_MODULE_AVAILABLE,
 };
-
 use codespan_reporting::diagnostic::Severity;
 use itertools::Itertools;
-
 use move_model::{
     ast::GlobalInvariant,
     model::{FunId, FunctionEnv, GlobalEnv, GlobalId, QualifiedId, VerificationScope},
@@ -24,12 +24,9 @@ use move_model::{
     },
     ty::{TypeUnificationAdapter, Variance},
 };
-
-use crate::{
-    function_target::{FunctionData, FunctionTarget},
-    function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
-    options::ProverOptions,
-    usage_analysis,
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{self, Formatter},
 };
 
 /// The annotation for information about verification.
@@ -257,8 +254,8 @@ impl FunctionTargetProcessor for VerificationAnalysisProcessor {
                         ),
                     )
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         // Collect information for global invariant instrumentation
@@ -416,8 +413,11 @@ impl VerificationAnalysisProcessor {
     /// Marks all callees of this function to be inlined. Forms a mutual recursion with the
     /// `mark_inlined` function above.
     fn mark_callees_inlined(fun_env: &FunctionEnv, targets: &mut FunctionTargetsHolder) {
-        for callee in fun_env.get_called_functions() {
-            let callee_env = fun_env.module_env.env.get_function(callee);
+        for callee in fun_env
+            .get_called_functions()
+            .expect(COMPILED_MODULE_AVAILABLE)
+        {
+            let callee_env = fun_env.module_env.env.get_function(*callee);
             Self::mark_inlined(&callee_env, targets);
         }
     }
@@ -461,7 +461,11 @@ impl VerificationAnalysisProcessor {
                 }
                 // Downward closure of the non_inv_fun_set
                 while let Some(called_fun_id) = worklist.pop() {
-                    let called_funs = env.get_function(called_fun_id).get_called_functions();
+                    let called_funs = env
+                        .get_function(called_fun_id)
+                        .get_called_functions()
+                        .cloned()
+                        .expect(COMPILED_MODULE_AVAILABLE);
                     for called_fun_id in called_funs {
                         if non_inv_fun_set.insert(called_fun_id) {
                             // Add to work_list only if fun_id is not in fun_set
@@ -480,6 +484,7 @@ impl VerificationAnalysisProcessor {
         let global_env = fun_env.module_env.env;
         let mut worklist: BTreeSet<Vec<QualifiedId<FunId>>> = fun_env
             .get_calling_functions()
+            .expect(COMPILED_MODULE_AVAILABLE)
             .into_iter()
             .map(|id| vec![id])
             .collect();
@@ -505,6 +510,7 @@ impl VerificationAnalysisProcessor {
                 worklist.extend(
                     caller_env
                         .get_calling_functions()
+                        .expect(COMPILED_MODULE_AVAILABLE)
                         .into_iter()
                         .filter_map(|id| {
                             if done.contains(&id) {
@@ -651,10 +657,13 @@ impl VerificationAnalysisProcessor {
         for (fun_id, mut relevance) in pruned.into_iter() {
             if !fun_set_with_no_inv_check.contains(&fun_id) {
                 let fenv = env.get_function(fun_id);
-                for callee in fenv.get_called_functions() {
-                    if fun_set_with_no_inv_check.contains(&callee) {
+                for callee in fenv
+                    .get_called_functions()
+                    .expect(COMPILED_MODULE_AVAILABLE)
+                {
+                    if fun_set_with_no_inv_check.contains(callee) {
                         // all invariants in the callee side will now be deferred to this function
-                        let suspended = deferred.get(&callee).unwrap();
+                        let suspended = deferred.get(callee).unwrap();
                         relevance.subsume_callee(suspended);
                     }
                 }

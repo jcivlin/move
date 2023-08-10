@@ -21,7 +21,7 @@ use move_command_line_common::files::{
 use move_compiler::{shared::PackagePaths, Flags};
 use move_ir_types::location::Spanned;
 use move_model::{
-    model::GlobalEnv, options::ModelBuilderOptions, run_bytecode_model_builder, run_model_builder,
+    model::GlobalEnv, options::ModelBuilderOptions, run_model_builder,
     run_model_builder_with_options_and_compilation_flags,
 };
 use move_mv_llvm_compiler::{cli::Args, disassembler::Disassembler};
@@ -147,6 +147,8 @@ fn main() -> anyhow::Result<()> {
             anyhow::bail!("Compilation failed");
         }
     } else {
+        bail!("Compilation of bytecodes is not supported in this version of compiler");
+        /*
         let move_extension = MOVE_EXTENSION;
         let mv_bytecode_extension = MOVE_COMPILED_EXTENSION;
         let source_map_extension = SOURCE_MAP_EXTENSION;
@@ -210,6 +212,7 @@ fn main() -> anyhow::Result<()> {
             let main_move_module = if args.is_script {
                 let script = CompiledScript::deserialize(&bytecode_bytes)
                     .context("Script blob can't be deserialized")?;
+                // NOTE: function below is private in Aptos version of Move compiler.
                 move_model::script_into_module(script)
             } else {
                 CompiledModule::deserialize(&bytecode_bytes)
@@ -229,8 +232,10 @@ fn main() -> anyhow::Result<()> {
                 .chain(Some(main_move_module))
                 .collect::<Vec<_>>();
 
-            move_model::run_bytecode_model_builder(&modules)?
+            // NOTE: function below does not exist in Aptos version of Move compiler.
+            // move_model::run_bytecode_model_builder(&modules)?
         }
+        */
     };
 
     match (&*args.gen_dot_cfg) {

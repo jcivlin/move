@@ -177,14 +177,14 @@ impl<'a> NativeTableContext<'a> {
                     Op::New(val) => {
                         let bytes = serialize(&value_layout, &val)?;
                         entries.insert(key, Op::New(bytes));
-                    }
+                    },
                     Op::Modify(val) => {
                         let bytes = serialize(&value_layout, &val)?;
                         entries.insert(key, Op::Modify(bytes));
-                    }
+                    },
                     Op::Delete => {
                         entries.insert(key, Op::Delete);
-                    }
+                    },
                 }
             }
             if !entries.is_empty() {
@@ -220,7 +220,7 @@ impl TableData {
                     content: Default::default(),
                 };
                 e.insert(table)
-            }
+            },
             Entry::Occupied(e) => e.into_mut(),
         })
     }
@@ -246,11 +246,11 @@ impl Table {
                             GlobalValue::cached(val)?,
                             Some(NumBytes::new(val_bytes.len() as u64)),
                         )
-                    }
+                    },
                     None => (GlobalValue::none(), None),
                 };
                 (entry.insert(gv), Some(loaded))
-            }
+            },
             Entry::Occupied(entry) => (entry.into_mut(), None),
         })
     }
@@ -309,17 +309,18 @@ pub fn table_natives(table_addr: AccountAddress, gas_params: GasParameters) -> N
 
 #[derive(Debug, Clone)]
 pub struct CommonGasParameters {
-    pub load_base: InternalGas,
+    pub load_base_legacy: InternalGas,
+    pub load_base_new: InternalGas,
     pub load_per_byte: InternalGasPerByte,
     pub load_failure: InternalGas,
 }
 
 impl CommonGasParameters {
     fn calculate_load_cost(&self, loaded: Option<Option<NumBytes>>) -> InternalGas {
-        self.load_base
+        self.load_base_legacy
             + match loaded {
-                Some(Some(num_bytes)) => self.load_per_byte * num_bytes,
-                Some(None) => self.load_failure,
+                Some(Some(num_bytes)) => self.load_base_new + self.load_per_byte * num_bytes,
+                Some(None) => self.load_base_new + self.load_failure,
                 None => 0.into(),
             }
     }
@@ -359,10 +360,9 @@ fn native_new_table_handle(
         .insert(TableHandle(handle), TableInfo::new(key_type, value_type))
         .is_none());
 
-    Ok(NativeResult::ok(
-        gas_params.base,
-        smallvec![Value::address(handle)],
-    ))
+    Ok(NativeResult::ok(gas_params.base, smallvec![
+        Value::address(handle)
+    ]))
 }
 
 pub fn make_native_new_table_handle(gas_params: NewTableHandleGasParameters) -> NativeFunction {
@@ -644,7 +644,8 @@ impl GasParameters {
     pub fn zeros() -> Self {
         Self {
             common: CommonGasParameters {
-                load_base: 0.into(),
+                load_base_legacy: 0.into(),
+                load_base_new: 0.into(),
                 load_per_byte: 0.into(),
                 load_failure: 0.into(),
             },

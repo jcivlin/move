@@ -3,20 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    interpreter::Interpreter, loader::Resolver, native_extensions::NativeContextExtensions,
+    data_cache::TransactionDataCache, interpreter::Interpreter, loader::Resolver,
+    native_extensions::NativeContextExtensions,
 };
-use move_binary_format::errors::{ExecutionState, PartialVMError, PartialVMResult};
+use move_binary_format::errors::{
+    ExecutionState, Location, PartialVMError, PartialVMResult, VMResult,
+};
 use move_core_types::{
     account_address::AccountAddress,
-    gas_algebra::InternalGas,
+    gas_algebra::{InternalGas, NumBytes},
     identifier::Identifier,
     language_storage::TypeTag,
     value::MoveTypeLayout,
     vm_status::{StatusCode, StatusType},
 };
 use move_vm_types::{
-    data_store::DataStore, loaded_data::runtime_types::Type, natives::function::NativeResult,
-    values::Value,
+    loaded_data::runtime_types::Type, natives::function::NativeResult, values::Value,
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -90,18 +92,18 @@ impl NativeFunctions {
     }
 }
 
-pub struct NativeContext<'a, 'b> {
+pub struct NativeContext<'a, 'b, 'c> {
     interpreter: &'a mut Interpreter,
-    data_store: &'a mut dyn DataStore,
+    data_store: &'a mut TransactionDataCache<'c>,
     resolver: &'a Resolver<'a>,
     extensions: &'a mut NativeContextExtensions<'b>,
     gas_balance: InternalGas,
 }
 
-impl<'a, 'b> NativeContext<'a, 'b> {
+impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub(crate) fn new(
         interpreter: &'a mut Interpreter,
-        data_store: &'a mut dyn DataStore,
+        data_store: &'a mut TransactionDataCache<'c>,
         resolver: &'a Resolver<'a>,
         extensions: &'a mut NativeContextExtensions<'b>,
         gas_balance: InternalGas,
@@ -116,10 +118,25 @@ impl<'a, 'b> NativeContext<'a, 'b> {
     }
 }
 
-impl<'a, 'b> NativeContext<'a, 'b> {
+impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub fn print_stack_trace<B: Write>(&self, buf: &mut B) -> PartialVMResult<()> {
         self.interpreter
             .debug_print_stack_trace(buf, self.resolver.loader())
+    }
+
+    pub fn exists_at(
+        &mut self,
+        address: AccountAddress,
+        type_: &Type,
+    ) -> VMResult<(bool, Option<NumBytes>)> {
+        let (value, num_bytes) = self
+            .data_store
+            .load_resource(self.resolver.loader(), address, type_)
+            .map_err(|err| err.finish(Location::Undefined))?;
+        let exists = value
+            .exists()
+            .map_err(|err| err.finish(Location::Undefined))?;
+        Ok((exists, num_bytes))
     }
 
     pub fn save_event(
@@ -129,15 +146,14 @@ impl<'a, 'b> NativeContext<'a, 'b> {
         ty: Type,
         val: Value,
     ) -> PartialVMResult<bool> {
-        match self.data_store.emit_event(guid, seq_num, ty, val) {
+        match self
+            .data_store
+            .emit_event(self.resolver.loader(), guid, seq_num, ty, val)
+        {
             Ok(()) => Ok(true),
             Err(e) if e.major_status().status_type() == StatusType::InvariantViolation => Err(e),
             Err(_) => Ok(false),
         }
-    }
-
-    pub fn events(&self) -> &Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)> {
-        self.data_store.events()
     }
 
     pub fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {

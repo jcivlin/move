@@ -2,8 +2,6 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::BTreeMap, path::Path};
-
 use crate::{
     framework::{run_test_impl, CompiledState, MoveTestAdapter},
     tasks::{EmptyCommand, InitCommand, SyntaxChoice, TaskInput},
@@ -39,6 +37,7 @@ use move_vm_runtime::{
 };
 use move_vm_test_utils::{gas_schedule::GasStatus, InMemoryStorage};
 use once_cell::sync::Lazy;
+use std::{collections::BTreeMap, path::Path};
 
 const STD_ADDR: AccountAddress = AccountAddress::ONE;
 
@@ -61,12 +60,13 @@ pub fn view_resource_in_move_storage(
         name: resource.to_owned(),
         type_params: type_args,
     };
+    // TODO
     match storage.get_resource(&address, &tag).unwrap() {
         None => Ok("[No Resource Exists]".to_owned()),
         Some(data) => {
             let annotated = MoveValueAnnotator::new(storage).view_resource(&tag, &data)?;
             Ok(format!("{}", annotated))
-        }
+        },
     }
 }
 
@@ -92,8 +92,8 @@ pub struct AdapterExecuteArgs {
 impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
     type ExtraInitArgs = EmptyCommand;
     type ExtraPublishArgs = AdapterPublishArgs;
-    type ExtraValueArgs = ();
     type ExtraRunArgs = AdapterExecuteArgs;
+    type ExtraValueArgs = ();
     type Subcommand = EmptyCommand;
 
     fn compiled_state(&mut self) -> &mut CompiledState<'a> {
@@ -112,7 +112,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
         let additional_mapping = match task_opt.map(|t| t.command) {
             Some((InitCommand { named_addresses }, _)) => {
                 verify_and_create_named_address_mapping(named_addresses).unwrap()
-            }
+            },
             None => BTreeMap::new(),
         };
 
@@ -148,7 +148,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
                     }
                     Ok(())
                 },
-                VMConfig::default(),
+                VMConfig::production(),
             )
             .unwrap();
         let mut addr_to_name_mapping = BTreeMap::new();
@@ -196,7 +196,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
                     compat,
                 )
             },
-            VMConfig::default(),
+            VMConfig::production(),
         ) {
             Ok(()) => Ok((None, module)),
             Err(e) => Err(anyhow!(
@@ -337,7 +337,7 @@ impl<'a> SimpleVMTestAdapter<'a> {
     fn perform_session_action<Ret>(
         &mut self,
         gas_budget: Option<u64>,
-        f: impl FnOnce(&mut Session<InMemoryStorage>, &mut GasStatus) -> VMResult<Ret>,
+        f: impl FnOnce(&mut Session, &mut GasStatus) -> VMResult<Ret>,
         vm_config: VMConfig,
     ) -> VMResult<Ret> {
         // start session
@@ -387,7 +387,7 @@ static PRECOMPILED_MOVE_STDLIB: Lazy<FullyCompiledProgram> = Lazy::new(|| {
         Err((files, errors)) => {
             eprintln!("!!!Standard library failed to compile!!!");
             move_compiler::diagnostics::report_diagnostics(&files, errors)
-        }
+        },
     }
 });
 
@@ -403,17 +403,17 @@ static MOVE_STDLIB_COMPILED: Lazy<Vec<CompiledModule>> = Lazy::new(|| {
         Err(diags) => {
             eprintln!("!!!Standard library failed to compile!!!");
             move_compiler::diagnostics::report_diagnostics(&files, diags)
-        }
+        },
         Ok((_, warnings)) if !warnings.is_empty() => {
             eprintln!("!!!Standard library failed to compile!!!");
             move_compiler::diagnostics::report_diagnostics(&files, warnings)
-        }
+        },
         Ok((units, _warnings)) => units
             .into_iter()
             .filter_map(|m| match m {
                 AnnotatedCompiledUnit::Module(annot_module) => {
                     Some(annot_module.named_module.module)
-                }
+                },
                 AnnotatedCompiledUnit::Script(_) => None,
             })
             .collect(),
@@ -428,7 +428,7 @@ impl From<AdapterExecuteArgs> for VMConfig {
     fn from(arg: AdapterExecuteArgs) -> VMConfig {
         VMConfig {
             paranoid_type_checks: arg.check_runtime_types,
-            ..Default::default()
+            ..Self::production()
         }
     }
 }

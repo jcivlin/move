@@ -86,9 +86,10 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         let mut visited = BTreeSet::new();
         worklist.push_back(m_env.get_id());
         while let Some(mid) = worklist.pop_front() {
-            let module_data = &g_env.module_data[mid.to_usize()];
-            for shandle in module_data.module.struct_handles() {
-                let struct_view = StructHandleView::new(&module_data.module, shandle);
+            let m_e = g_env.get_module(m_env.get_id());
+            let module = m_e.get_verified_module().unwrap();
+            for shandle in module.struct_handles() {
+                let struct_view = StructHandleView::new(module, shandle);
                 let declaring_module_env = g_env
                     .find_module(&g_env.to_module_name(&struct_view.module_id()))
                     .expect("undefined module");
@@ -152,10 +153,10 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
 
         // Now that all the concrete structs are available, pull in the generic ones. Each such
         // StructDefInstantiation will induce a concrete expansion once fields are visited later.
-        let this_module_data = &g_env.module_data[m_env.get_id().to_usize()];
-        let cm = &this_module_data.module;
+        let m_e = g_env.get_module(m_env.get_id());
+        let cm = m_e.get_verified_module().unwrap();
         for s_def_inst in cm.struct_instantiations() {
-            let tys = m_env.get_type_actuals(Some(s_def_inst.type_parameters));
+            let tys = m_env.get_type_actuals(Some(s_def_inst.type_parameters)).unwrap();
             let s_env = m_env.get_struct_by_def_idx(s_def_inst.def);
             let created = create_opaque_named_struct(&s_env, &tys);
             assert!(created, "struct already exists");
@@ -165,7 +166,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         // Similarly, pull in generics from field instantiations.
         for f_inst in cm.field_instantiations() {
             let fld_handle = cm.field_handle_at(f_inst.handle);
-            let tys = m_env.get_type_actuals(Some(f_inst.type_parameters));
+            let tys = m_env.get_type_actuals(Some(f_inst.type_parameters)).unwrap();
             let s_env = m_env.get_struct_by_def_idx(fld_handle.owner);
             if create_opaque_named_struct(&s_env, &tys) {
                 all_structs.push((s_env, tys));
@@ -181,7 +182,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
                 SignatureToken::find_struct_instantiation_signatures(st, &mut inst_signatures);
                 for sti in &inst_signatures {
                     let gs = m_env.globalize_signature(sti);
-                    if let mty::Type::Struct(mid, sid, tys) = gs {
+                    if let Some(mty::Type::Struct(mid, sid, tys)) = gs {
                         let s_env = g_env.get_module(mid).into_struct(sid);
                         if create_opaque_named_struct(&s_env, &tys) {
                             all_structs.push((s_env, tys));
@@ -385,13 +386,15 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         let ll_sym_name = fn_env.llvm_symbol_name(tyvec);
         let ll_fn = {
             let ll_fnty = {
-                let ll_rty = match fn_data.return_types.len() {
+                let ll_rty = match fn_data.result_type.to_owned().flatten().len() {
                     0 => self.llvm_cx.void_type(),
-                    1 => self.to_llvm_type(&fn_data.return_types[0], tyvec),
+                    1 => self.to_llvm_type(&fn_data.result_type, tyvec),
                     _ => {
                         // Wrap multiple return values in a struct.
                         let tys: Vec<_> = fn_data
-                            .return_types
+                            .result_type
+                            .to_owned()
+                            .flatten()
                             .iter()
                             .map(|f| self.to_llvm_type(f, tyvec))
                             .collect();
@@ -460,10 +463,10 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         let ll_fn = {
             let ll_fnty = {
                 // Generic return values are passed through a final return pointer arg.
-                let (ll_rty, ll_byref_rty) = match fn_data.return_types.len() {
+                let (ll_rty, ll_byref_rty) = match fn_data.result_type.to_owned().flatten().len() {
                     0 => (llcx.void_type(), None),
                     1 => {
-                        let mty0 = &fn_data.return_types[0];
+                        let mty0 = &fn_data.result_type.to_owned().flatten()[0];
                         if mty0.is_type_parameter() {
                             (llcx.void_type(), Some(llcx.ptr_type()))
                         } else {
@@ -590,7 +593,7 @@ impl<'mm, 'up> ModuleContext<'mm, 'up> {
         module_cx: &'mm ModuleContext,
         type_params: &'mm [mty::Type],
     ) -> FunctionContext<'mm, 'this> {
-        let locals = Vec::with_capacity(fn_env.get_local_count());
+        let locals = Vec::with_capacity(fn_env.get_local_count().unwrap());
         FunctionContext {
             env: fn_env,
             module_cx,

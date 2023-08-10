@@ -2,12 +2,11 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::{anyhow, bail};
+use heck::SnakeCase;
 #[allow(unused_imports)]
 use log::{debug, info, warn};
-
-use anyhow::bail;
-use heck::SnakeCase;
-use move_binary_format::file_format::Ability;
+use move_binary_format::{file_format::Ability, CompiledModule};
 use move_bytecode_verifier::script_signature;
 use move_command_line_common::files::MOVE_COMPILED_EXTENSION;
 use move_core_types::{
@@ -16,6 +15,7 @@ use move_core_types::{
     language_storage::{StructTag, TypeTag},
 };
 use move_model::{
+    ast::Address,
     model::{FunctionEnv, GlobalEnv, ModuleEnv},
     ty,
 };
@@ -124,10 +124,10 @@ impl<'env> Abigen<'env> {
         let script_iter: Vec<_> = if module_env.is_script_module() {
             module_env.get_functions().collect()
         } else {
+            let module = Self::get_compiled_module(module_env)?;
             module_env
                 .get_functions()
                 .filter(|func| {
-                    let module = module_env.get_verified_module();
                     let func_name = module_env.symbol_pool().string(func.get_name());
                     let func_ident = IdentStr::new(&func_name).unwrap();
                     // only pick up script functions that also have a script-callable signature.
@@ -178,7 +178,7 @@ impl<'env> Abigen<'env> {
         let name = symbol_pool.string(func.get_name()).to_string();
         let doc = func.get_doc().to_string();
         let ty_args = func
-            .get_named_type_parameters()
+            .get_type_parameters()
             .iter()
             .map(|ty_param| {
                 TypeArgumentABI::new(symbol_pool.string(ty_param.0).to_string().to_snake_case())
@@ -191,12 +191,12 @@ impl<'env> Abigen<'env> {
                 ty::Type::Primitive(ty::PrimitiveType::Signer) => false,
                 ty::Type::Reference(false, inner) => {
                     !matches!(&**inner, ty::Type::Primitive(ty::PrimitiveType::Signer))
-                }
+                },
                 ty::Type::Struct(module_id, struct_id, _) => {
                     let struct_module_env = module_env.env.get_module(*module_id);
                     let abilities = struct_module_env.get_struct(*struct_id).get_abilities();
                     abilities.has_ability(Ability::Copy) && !abilities.has_ability(Ability::Key)
-                }
+                },
                 _ => true,
             })
             .map(|param| {
@@ -216,9 +216,10 @@ impl<'env> Abigen<'env> {
             )))
         } else {
             // This is a script function, so no code. But we need to include the module ID
+            let module = Self::get_compiled_module(module_env)?;
             Ok(ScriptABI::ScriptFunction(ScriptFunctionABI::new(
                 name,
-                module_env.get_verified_module().self_id(),
+                module.self_id(),
                 doc,
                 ty_args,
                 args,
@@ -236,7 +237,7 @@ impl<'env> Abigen<'env> {
                         .to_string_lossy()
                         .to_string();
                 Ok(map.get(&path).unwrap().clone())
-            }
+            },
             None => {
                 let mut path = PathBuf::from(&self.options.compiled_script_directory);
                 path.push(
@@ -252,7 +253,7 @@ impl<'env> Abigen<'env> {
                 let mut bytes = Vec::new();
                 f.read_to_end(&mut bytes)?;
                 Ok(bytes)
-            }
+            },
         }
     }
 
@@ -276,41 +277,50 @@ impl<'env> Abigen<'env> {
                     Signer => TypeTag::Signer,
                     Num | Range | EventStore => {
                         bail!("Type {:?} is not allowed in scripts.", ty0)
-                    }
+                    },
                 }
-            }
+            },
             Vector(ty) => {
                 let tag = match Self::get_type_tag(ty, module_env)? {
                     Some(tag) => tag,
                     None => return Ok(None),
                 };
                 TypeTag::Vector(Box::new(tag))
-            }
+            },
             Struct(module_id, struct_id, vec_type) => {
-                let expect_msg = format!("type {:?} is not allowed in scription function", ty0);
                 let struct_module_env = module_env.env.get_module(*module_id);
                 let abilities = struct_module_env.get_struct(*struct_id).get_abilities();
                 if abilities.has_ability(Ability::Copy) && !abilities.has_ability(Ability::Key) {
+                    let mut type_params = vec![];
+                    for e in vec_type {
+                        let type_param = match Self::get_type_tag(e, module_env)? {
+                            Some(type_param) => type_param,
+                            None => return Ok(None),
+                        };
+                        type_params.push(type_param);
+                    }
+                    let address = if let Address::Numerical(a) = &struct_module_env.self_address() {
+                        *a
+                    } else {
+                        bail!("expected no symbolic addresses")
+                    };
                     TypeTag::Struct(Box::new(StructTag {
-                        address: *struct_module_env.self_address(),
-                        module: struct_module_env.get_identifier(),
+                        address,
+                        module: struct_module_env
+                            .get_identifier()
+                            .ok_or_else(|| anyhow!("expected compiled module"))?,
                         name: struct_module_env
                             .get_struct(*struct_id)
                             .get_identifier()
-                            .unwrap_or_else(|| panic!("{}", expect_msg)),
-                        type_params: vec_type
-                            .iter()
-                            .map(|e| {
-                                Self::get_type_tag(e, module_env)
-                                    .unwrap_or_else(|_| panic!("{}", expect_msg))
-                            })
-                            .map(|e| e.unwrap_or_else(|| panic!("{}", expect_msg)))
-                            .collect(),
+                            .unwrap_or_else(|| {
+                                panic!("type {:?} is not allowed in entry function", ty0)
+                            }),
+                        type_params,
                     }))
                 } else {
                     return Ok(None);
                 }
-            }
+            },
             Tuple(_)
             | TypeParameter(_)
             | Fun(_, _)
@@ -321,5 +331,13 @@ impl<'env> Abigen<'env> {
             | Reference(_, _) => return Ok(None),
         };
         Ok(Some(tag))
+    }
+
+    fn get_compiled_module<'a>(
+        module_env: &'a ModuleEnv<'a>,
+    ) -> anyhow::Result<&'a CompiledModule> {
+        module_env
+            .get_verified_module()
+            .ok_or_else(|| anyhow!("no attached compiled module"))
     }
 }

@@ -243,6 +243,7 @@ fn apply_ratio_round_down(val: u64, nominator: u64, denominator: u64) -> u64 {
     }
 }
 
+#[allow(clippy::bool_to_int_with_if)]
 fn apply_ratio_round_up(val: u64, nominator: u64, denominator: u64) -> u64 {
     assert_ne!(nominator, 0);
     assert_ne!(denominator, 0);
@@ -250,7 +251,7 @@ fn apply_ratio_round_up(val: u64, nominator: u64, denominator: u64) -> u64 {
     let n = val as u128 * nominator as u128;
     let d = denominator as u128;
 
-    let res = n / d + u128::from(n % d != 0);
+    let res = n / d + if n % d == 0 { 0 } else { 1 };
     if res > u64::MAX as u128 {
         u64::MAX
     } else {
@@ -331,33 +332,33 @@ impl ToUnit<MebiByte> for GibiByte {
 }
 
 impl ToUnitFractional<KibiByte> for Byte {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1024;
+    const NOMINATOR: u64 = 1;
 }
 
 impl ToUnitFractional<MebiByte> for KibiByte {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1024;
+    const NOMINATOR: u64 = 1;
 }
 
 impl ToUnitFractional<MebiByte> for Byte {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1024 * 1024;
+    const NOMINATOR: u64 = 1;
 }
 
 impl ToUnitFractional<GibiByte> for MebiByte {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1024;
+    const NOMINATOR: u64 = 1;
 }
 
 impl ToUnitFractional<GibiByte> for KibiByte {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1024 * 1024;
+    const NOMINATOR: u64 = 1;
 }
 
 impl ToUnitFractional<GibiByte> for Byte {
-    const NOMINATOR: u64 = 1;
     const DENOMINATOR: u64 = 1024 * 1024 * 1024;
+    const NOMINATOR: u64 = 1;
 }
 
 /***************************************************************************************************

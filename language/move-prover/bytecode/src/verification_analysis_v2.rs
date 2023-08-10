@@ -4,11 +4,15 @@
 
 //! Analysis which computes an annotation for each function whether
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-
+use crate::{
+    dataflow_domains::SetDomain,
+    function_target::{FunctionData, FunctionTarget},
+    function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
+    options::ProverOptions,
+    usage_analysis, COMPILED_MODULE_AVAILABLE,
+};
 use itertools::Itertools;
 use log::debug;
-
 use move_model::{
     model::{FunId, FunctionEnv, GlobalEnv, GlobalId, ModuleEnv, QualifiedId, VerificationScope},
     pragmas::{
@@ -16,14 +20,7 @@ use move_model::{
         DISABLE_INVARIANTS_IN_BODY_PRAGMA, VERIFY_PRAGMA,
     },
 };
-
-use crate::{
-    dataflow_domains::SetDomain,
-    function_target::{FunctionData, FunctionTarget},
-    function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
-    options::ProverOptions,
-    usage_analysis,
-};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The annotation for information about verification.
 #[derive(Clone, Default)]
@@ -66,7 +63,7 @@ pub struct InvariantAnalysisData {
     /// Functions that modify some invariant in the target
     /// Does not include update invariants
     pub funs_that_modify_some_inv: BTreeSet<QualifiedId<FunId>>,
-    /// functions that are in non_inv_fun_set and M[I] for some I.
+    /// functions that are in non_inv_fun_set and `M[I]` for some `I`.
     /// We have to verify the callers, which may be in friend modules.
     pub funs_that_delegate_to_caller: BTreeSet<QualifiedId<FunId>>,
     /// Functions that are not in target or deps, but that call a function
@@ -147,7 +144,9 @@ fn compute_disabled_invs_for_fun(
         if let Some(disabled_invs_for_caller) = disabled_invs_for_fun.remove(&caller_fun_id) {
             let called_funs = global_env
                 .get_function(caller_fun_id)
-                .get_called_functions();
+                .get_called_functions()
+                .cloned()
+                .expect(COMPILED_MODULE_AVAILABLE);
             for called_fun_id in called_funs {
                 let disabled_invs_for_called = disabled_invs_for_fun
                     .entry(called_fun_id)
@@ -212,6 +211,7 @@ fn compute_non_inv_cause_chain(fun_env: &FunctionEnv<'_>) -> Vec<String> {
     let global_env = fun_env.module_env.env;
     let mut worklist: BTreeSet<Vec<QualifiedId<FunId>>> = fun_env
         .get_calling_functions()
+        .expect(COMPILED_MODULE_AVAILABLE)
         .into_iter()
         .map(|id| vec![id])
         .collect();
@@ -237,6 +237,7 @@ fn compute_non_inv_cause_chain(fun_env: &FunctionEnv<'_>) -> Vec<String> {
             worklist.extend(
                 caller_env
                     .get_calling_functions()
+                    .expect(COMPILED_MODULE_AVAILABLE)
                     .into_iter()
                     .filter_map(|id| {
                         if done.contains(&id) {
@@ -291,7 +292,9 @@ fn compute_disabled_and_non_inv_fun_sets(
             while let Some(called_fun_id) = worklist.pop() {
                 let called_funs = global_env
                     .get_function(called_fun_id)
-                    .get_called_functions();
+                    .get_called_functions()
+                    .cloned()
+                    .expect(COMPILED_MODULE_AVAILABLE);
                 for called_fun_id in called_funs {
                     if non_inv_fun_set.insert(called_fun_id) {
                         // Add to work_list only if fun_id is not in fun_set
@@ -415,7 +418,9 @@ fn compute_friend_fun_ids(
             worklist.push(friend_id);
         }
         if funs_that_delegate_to_caller.contains(&fun_id) {
-            let callers = fun_env.get_calling_functions();
+            let callers = fun_env
+                .get_calling_functions()
+                .expect(COMPILED_MODULE_AVAILABLE);
             for caller_fun_id in callers {
                 // Exclude callers that are in target or dep modules, because we will verify them, anyway.
                 // We also don't need to put them in the worklist, because they were in there initially.
@@ -602,14 +607,14 @@ impl FunctionTargetProcessor for VerificationAnalysisProcessorV2 {
                     (is_in_target_mod && fun_env.is_exposed())
                         || is_in_deps_and_modifies_inv
                         || is_in_friends
-                }
+                },
                 VerificationScope::All => is_normally_verified,
                 VerificationScope::Only(function_name) => {
                     fun_env.matches_name(function_name) && is_in_target_mod
-                }
+                },
                 VerificationScope::OnlyModule(module_name) => {
                     is_in_target_mod && fun_env.module_env.matches_name(module_name)
-                }
+                },
                 VerificationScope::None => false,
             };
             if is_verified {
@@ -655,8 +660,8 @@ impl FunctionTargetProcessor for VerificationAnalysisProcessorV2 {
                         ),
                     )
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         let target_modules = global_env.get_target_modules();
@@ -786,8 +791,11 @@ fn mark_callees_inlined(
     variant: FunctionVariant,
     targets: &mut FunctionTargetsHolder,
 ) {
-    for callee in fun_env.get_called_functions() {
-        let callee_env = fun_env.module_env.env.get_function(callee);
+    for callee in fun_env
+        .get_called_functions()
+        .expect(COMPILED_MODULE_AVAILABLE)
+    {
+        let callee_env = fun_env.module_env.env.get_function(*callee);
         if !callee_env.is_opaque() {
             mark_inlined(&callee_env, variant.clone(), targets);
         }

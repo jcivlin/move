@@ -4,13 +4,14 @@
 
 use base::{
     build::Build, coverage::Coverage, disassemble::Disassemble, docgen::Docgen, errmap::Errmap,
-    info::Info, new::New, prove::Prove, test::Test,
+    info::Info, movey_login::MoveyLogin, movey_upload::MoveyUpload, new::New, prove::Prove,
+    test::Test,
 };
 use move_package::BuildConfig;
 
 pub mod base;
-pub mod experimental;
 pub mod sandbox;
+pub mod utils;
 
 /// Default directory where saved Move resources live
 pub const DEFAULT_STORAGE_DIR: &str = "storage";
@@ -68,6 +69,7 @@ pub enum Command {
     Docgen(Docgen),
     Errmap(Errmap),
     Info(Info),
+    MoveyUpload(MoveyUpload),
     New(New),
     Prove(Prove),
     Test(Test),
@@ -81,16 +83,8 @@ pub enum Command {
         #[clap(subcommand)]
         cmd: sandbox::cli::SandboxCommand,
     },
-    /// (Experimental) Run static analyses on Move source or bytecode.
-    #[clap(name = "experimental")]
-    Experimental {
-        /// Directory storing Move resources, events, and module bytecodes produced by module publishing
-        /// and script execution.
-        #[clap(long, default_value = DEFAULT_STORAGE_DIR, parse(from_os_str))]
-        storage_dir: PathBuf,
-        #[clap(subcommand)]
-        cmd: experimental::cli::ExperimentalCommand,
-    },
+    #[clap(name = "movey-login")]
+    MoveyLogin(MoveyLogin),
 }
 
 pub fn run_cli(
@@ -110,6 +104,7 @@ pub fn run_cli(
         Command::Docgen(c) => c.execute(move_args.package_path, move_args.build_config),
         Command::Errmap(c) => c.execute(move_args.package_path, move_args.build_config),
         Command::Info(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::MoveyUpload(c) => c.execute(move_args.package_path),
         Command::New(c) => c.execute_with_defaults(move_args.package_path),
         Command::Prove(c) => c.execute(move_args.package_path, move_args.build_config),
         Command::Test(c) => c.execute(
@@ -125,7 +120,7 @@ pub fn run_cli(
             &move_args,
             &storage_dir,
         ),
-        Command::Experimental { storage_dir, cmd } => cmd.handle_command(&move_args, &storage_dir),
+        Command::MoveyLogin(c) => c.execute(),
     }
 }
 

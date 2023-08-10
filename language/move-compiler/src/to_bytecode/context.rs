@@ -7,6 +7,7 @@ use crate::{
     hlir::ast as H,
     parser::ast::{ConstantName, FunctionName, StructName, Var},
     shared::{CompilationEnv, NumericalAddress},
+    typing::ast::SpecIdent,
 };
 use move_core_types::account_address::AccountAddress as MoveAddress;
 use move_ir_types::ast as IR;
@@ -17,6 +18,14 @@ use std::{
 };
 use IR::Ability;
 
+/// Holds information about an anchor point of an in-body spec block
+pub struct SpecAnchor {
+    pub label: IR::NopLabel,
+    pub origin: SpecIdent,
+    pub used_locals: BTreeMap<Var, (H::SingleType, Var)>,
+    pub used_lambda_funs: BTreeMap<Symbol, (Symbol, Vec<Var>)>,
+}
+
 /// Compilation context for a single compilation unit (module or script).
 /// Contains all of the dependencies actually used in the module
 pub struct Context<'a> {
@@ -24,7 +33,7 @@ pub struct Context<'a> {
     current_module: Option<&'a ModuleIdent>,
     seen_structs: BTreeSet<(ModuleIdent, StructName)>,
     seen_functions: BTreeSet<(ModuleIdent, FunctionName)>,
-    spec_info: BTreeMap<SpecId, (IR::NopLabel, BTreeMap<Var, H::SingleType>)>,
+    spec_info: BTreeMap<SpecId, SpecAnchor>,
 }
 
 impl<'a> Context<'a> {
@@ -46,9 +55,7 @@ impl<'a> Context<'a> {
         self.current_module.map(|cur| cur == m).unwrap_or(false)
     }
 
-    pub fn finish_function(
-        &mut self,
-    ) -> BTreeMap<SpecId, (IR::NopLabel, BTreeMap<Var, H::SingleType>)> {
+    pub fn finish_function(&mut self) -> BTreeMap<SpecId, SpecAnchor> {
         std::mem::take(&mut self.spec_info)
     }
 
@@ -89,14 +96,11 @@ impl<'a> Context<'a> {
             let ir_name = Self::ir_module_alias(&module);
             let ir_ident = Self::translate_module_ident(module);
             imports.push(IR::ImportDefinition::new(ir_ident, Some(ir_name)));
-            ordered_dependencies.push((
-                dependency_order,
-                IR::ModuleDependency {
-                    name: ir_name,
-                    structs,
-                    functions,
-                },
-            ));
+            ordered_dependencies.push((dependency_order, IR::ModuleDependency {
+                name: ir_name,
+                structs,
+                functions,
+            }));
         }
         ordered_dependencies.sort_by_key(|(ordering, _)| *ordering);
         let dependencies = ordered_dependencies.into_iter().map(|(_, m)| m).collect();
@@ -249,7 +253,8 @@ impl<'a> Context<'a> {
     pub fn struct_definition_name(&self, m: &ModuleIdent, s: StructName) -> IR::StructName {
         assert!(
             self.is_current_module(m),
-            "ICE invalid struct definition lookup"
+            "ICE invalid struct definition lookup: {}",
+            m
         );
         Self::translate_struct_name(s)
     }
@@ -316,12 +321,25 @@ impl<'a> Context<'a> {
     // Nops
     //**********************************************************************************************
 
-    pub fn spec(&mut self, id: SpecId, used_locals: BTreeMap<Var, H::SingleType>) -> IR::NopLabel {
+    pub fn spec(&mut self, hanchor: H::SpecAnchor) -> IR::NopLabel {
+        let H::SpecAnchor {
+            id,
+            origin,
+            used_locals,
+            used_lambda_funs,
+        } = hanchor;
+
         let label = IR::NopLabel(format!("{}", id).into());
-        assert!(self
-            .spec_info
-            .insert(id, (label.clone(), used_locals))
-            .is_none());
+        let anchor = SpecAnchor {
+            label: label.clone(),
+            origin,
+            used_locals,
+            used_lambda_funs,
+        };
+        let existing = self.spec_info.insert(id, anchor);
+        // cannot have two anchors at the same NOP label
+        assert!(existing.is_none());
+
         label
     }
 }

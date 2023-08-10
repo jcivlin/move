@@ -10,16 +10,14 @@
 //! compiler. Later transformations may replace `idx` but `original_idx` will be preserved so
 //! the user sees the value of their named variable.
 
-use std::collections::BTreeSet;
-
-use move_model::{exp_generator::ExpGenerator, model::FunctionEnv};
-
 use crate::{
     function_data_builder::FunctionDataBuilder,
     function_target::FunctionData,
     function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder},
     stackless_bytecode::{Bytecode, Operation},
 };
+use move_model::{exp_generator::ExpGenerator, model::FunctionEnv};
+use std::collections::BTreeSet;
 
 pub struct DebugInstrumenter {}
 
@@ -64,13 +62,15 @@ impl FunctionTargetProcessor for DebugInstrumenter {
                         });
                     }
                     builder.emit(bc);
-                }
+                },
                 Abort(id, l) => {
                     builder.set_loc_from_attr(*id);
                     builder.emit_with(|id| Call(id, vec![], Operation::TraceAbort, vec![*l], None));
                     builder.emit(bc);
-                }
-                Call(_, _, Operation::WriteRef, srcs, _) if srcs[0] < fun_env.get_local_count() => {
+                },
+                Call(_, _, Operation::WriteRef, srcs, _)
+                    if srcs[0] < fun_env.get_local_count().unwrap_or_default() =>
+                {
                     builder.set_loc_from_attr(bc.get_attr_id());
                     builder.emit(bc.clone());
                     builder.emit_with(|id| {
@@ -82,7 +82,7 @@ impl FunctionTargetProcessor for DebugInstrumenter {
                             None,
                         )
                     });
-                }
+                },
                 _ => {
                     builder.set_loc_from_attr(bc.get_attr_id());
                     builder.emit(bc.clone());
@@ -95,13 +95,13 @@ impl FunctionTargetProcessor for DebugInstrumenter {
                     for idx in affected_variables {
                         // Only emit this for user declared locals, not for ones introduced
                         // by stack elimination.
-                        if !fun_env.is_temporary(idx) {
+                        if !fun_env.is_temporary(idx).unwrap_or_default() {
                             builder.emit_with(|id| {
                                 Call(id, vec![], Operation::TraceLocal(idx), vec![idx], None)
                             });
                         }
                     }
-                }
+                },
             }
         }
 

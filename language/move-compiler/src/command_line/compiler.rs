@@ -8,7 +8,7 @@ use crate::{
     compiled_unit,
     compiled_unit::AnnotatedCompiledUnit,
     diagnostics::{codes::Severity, *},
-    expansion, hlir, interface_generator, naming, parser,
+    expansion, hlir, inlining, interface_generator, naming, parser,
     parser::{comments::*, *},
     shared::{
         CompilationEnv, Flags, IndexedPackagePath, NamedAddressMap, NamedAddressMaps,
@@ -56,9 +56,10 @@ pub const PASS_PARSER: Pass = 1;
 pub const PASS_EXPANSION: Pass = 2;
 pub const PASS_NAMING: Pass = 3;
 pub const PASS_TYPING: Pass = 4;
-pub const PASS_HLIR: Pass = 5;
-pub const PASS_CFGIR: Pass = 6;
-pub const PASS_COMPILATION: Pass = 7;
+pub const PASS_INLINING: Pass = 5;
+pub const PASS_HLIR: Pass = 6;
+pub const PASS_CFGIR: Pass = 7;
+pub const PASS_COMPILATION: Pass = 8;
 
 #[derive(Debug)]
 enum PassResult {
@@ -66,6 +67,7 @@ enum PassResult {
     Expansion(expansion::ast::Program),
     Naming(naming::ast::Program),
     Typing(typing::ast::Program),
+    Inlining(typing::ast::Program),
     HLIR(hlir::ast::Program),
     CFGIR(cfgir::ast::Program),
     Compilation(Vec<AnnotatedCompiledUnit>, /* warnings */ Diagnostics),
@@ -79,6 +81,7 @@ pub struct FullyCompiledProgram {
     pub expansion: expansion::ast::Program,
     pub naming: naming::ast::Program,
     pub typing: typing::ast::Program,
+    pub inlining: typing::ast::Program,
     pub hlir: hlir::ast::Program,
     pub cfgir: cfgir::ast::Program,
     pub compiled: Vec<AnnotatedCompiledUnit>,
@@ -394,6 +397,13 @@ ast_stepped_compilers!(
     ),
     (PASS_NAMING, naming, Naming, at_naming, new_at_naming),
     (PASS_TYPING, typing, Typing, at_typing, new_at_typing),
+    (
+        PASS_INLINING,
+        typing,
+        Inlining,
+        at_inlining,
+        new_at_inlining
+    ),
     (PASS_HLIR, hlir, HLIR, at_hlir, new_at_hlir),
     (PASS_CFGIR, cfgir, CFGIR, at_cfgir, new_at_cfgir)
 );
@@ -437,6 +447,7 @@ pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol
     let mut expansion = None;
     let mut naming = None;
     let mut typing = None;
+    let mut inlining = None;
     let mut hlir = None;
     let mut cfgir = None;
     let mut compiled = None;
@@ -445,31 +456,35 @@ pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol
         PassResult::Parser(prog) => {
             assert!(parser.is_none());
             parser = Some(prog.clone())
-        }
+        },
         PassResult::Expansion(eprog) => {
             assert!(expansion.is_none());
             expansion = Some(eprog.clone())
-        }
+        },
         PassResult::Naming(nprog) => {
             assert!(naming.is_none());
             naming = Some(nprog.clone())
-        }
+        },
         PassResult::Typing(tprog) => {
             assert!(typing.is_none());
             typing = Some(tprog.clone())
-        }
+        },
+        PassResult::Inlining(tprog) => {
+            assert!(inlining.is_none());
+            inlining = Some(tprog.clone())
+        },
         PassResult::HLIR(hprog) => {
             assert!(hlir.is_none());
             hlir = Some(hprog.clone());
-        }
+        },
         PassResult::CFGIR(cprog) => {
             assert!(cfgir.is_none());
             cfgir = Some(cprog.clone());
-        }
+        },
         PassResult::Compilation(units, _final_diags) => {
             assert!(compiled.is_none());
             compiled = Some(units.clone())
-        }
+        },
     };
     match run(
         &mut compilation_env,
@@ -485,6 +500,7 @@ pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol
             expansion: expansion.unwrap(),
             naming: naming.unwrap(),
             typing: typing.unwrap(),
+            inlining: inlining.unwrap(),
             hlir: hlir.unwrap(),
             cfgir: cfgir.unwrap(),
             compiled: compiled.unwrap(),
@@ -728,6 +744,7 @@ impl PassResult {
             PassResult::Expansion(_) => PASS_EXPANSION,
             PassResult::Naming(_) => PASS_NAMING,
             PassResult::Typing(_) => PASS_TYPING,
+            PassResult::Inlining(_) => PASS_INLINING,
             PassResult::HLIR(_) => PASS_HLIR,
             PassResult::CFGIR(_) => PASS_CFGIR,
             PassResult::Compilation(_, _) => PASS_COMPILATION,
@@ -765,7 +782,7 @@ fn run(
                 until,
                 result_check,
             )
-        }
+        },
         PassResult::Expansion(eprog) => {
             let nprog = naming::translate::program(compilation_env, pre_compiled_lib, eprog);
             compilation_env.check_diags_at_or_above_severity(Severity::Bug)?;
@@ -776,7 +793,7 @@ fn run(
                 until,
                 result_check,
             )
-        }
+        },
         PassResult::Naming(nprog) => {
             let tprog = typing::translate::program(compilation_env, pre_compiled_lib, nprog);
             compilation_env.check_diags_at_or_above_severity(Severity::BlockingError)?;
@@ -787,8 +804,19 @@ fn run(
                 until,
                 result_check,
             )
-        }
-        PassResult::Typing(tprog) => {
+        },
+        PassResult::Typing(mut tprog) => {
+            inlining::translate::run_inlining(compilation_env, &mut tprog);
+            compilation_env.check_diags_at_or_above_severity(Severity::BlockingError)?;
+            run(
+                compilation_env,
+                pre_compiled_lib,
+                PassResult::Inlining(tprog),
+                until,
+                result_check,
+            )
+        },
+        PassResult::Inlining(tprog) => {
             let hprog = hlir::translate::program(compilation_env, pre_compiled_lib, tprog);
             compilation_env.check_diags_at_or_above_severity(Severity::Bug)?;
             run(
@@ -798,7 +826,7 @@ fn run(
                 until,
                 result_check,
             )
-        }
+        },
         PassResult::HLIR(hprog) => {
             let cprog = cfgir::translate::program(compilation_env, pre_compiled_lib, hprog);
             compilation_env.check_diags_at_or_above_severity(Severity::NonblockingError)?;
@@ -809,7 +837,7 @@ fn run(
                 until,
                 result_check,
             )
-        }
+        },
         PassResult::CFGIR(cprog) => {
             let compiled_units =
                 to_bytecode::translate::program(compilation_env, pre_compiled_lib, cprog);
@@ -823,7 +851,7 @@ fn run(
                 PASS_COMPILATION,
                 result_check,
             )
-        }
+        },
         PassResult::Compilation(_, _) => unreachable!("ICE Pass::Compilation is >= all passes"),
     }
 }

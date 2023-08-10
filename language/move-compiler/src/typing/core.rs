@@ -8,7 +8,7 @@ use crate::{
     expansion::ast::{AbilitySet, ModuleIdent, Visibility},
     naming::ast::{
         self as N, BuiltinTypeName_, FunctionSignature, StructDefinition, StructTypeParameter,
-        TParam, TParamID, TVar, Type, TypeName, TypeName_, Type_,
+        TParam, TParamID, TVar, Type, TypeName, TypeName_, Type_, Variance,
     },
     parser::ast::{Ability_, ConstantName, Field, FunctionName, StructName, Var},
     shared::{unique_map::UniqueMap, *},
@@ -42,6 +42,7 @@ pub struct FunctionInfo {
     pub visibility: Visibility,
     pub signature: FunctionSignature,
     pub acquires: BTreeMap<StructName, Loc>,
+    pub inline: bool,
 }
 
 pub struct ConstantInfo {
@@ -70,6 +71,7 @@ pub struct Context<'env> {
 
     pub current_module: Option<ModuleIdent>,
     pub current_function: Option<FunctionName>,
+    pub current_function_inlined: bool,
     pub current_script_constants: Option<UniqueMap<ConstantName, ConstantInfo>>,
     pub return_type: Option<Type>,
     locals: UniqueMap<Var, Type>,
@@ -103,6 +105,7 @@ impl<'env> Context<'env> {
                 visibility: fdef.visibility.clone(),
                 signature: fdef.signature.clone(),
                 acquires: fdef.acquires.clone(),
+                inline: fdef.inline,
             });
             let constants = mdef.constants.ref_map(|cname, cdef| ConstantInfo {
                 defined_loc: cname.loc(),
@@ -121,6 +124,7 @@ impl<'env> Context<'env> {
             subst: Subst::empty(),
             current_module: None,
             current_function: None,
+            current_function_inlined: false,
             current_script_constants: None,
             return_type: None,
             constraints: vec![],
@@ -232,7 +236,7 @@ impl<'env> Context<'env> {
                     (loc, format!("Invalid {}. Unbound variable '{}'", verb, var)),
                 ));
                 self.error_type(loc)
-            }
+            },
             Some(t) => t,
         }
     }
@@ -281,7 +285,7 @@ impl<'env> Context<'env> {
             Some(current_mident) => {
                 let minfo = self.module_info(m);
                 minfo.friends.contains_key(current_mident)
-            }
+            },
         }
     }
 
@@ -311,11 +315,7 @@ impl<'env> Context<'env> {
             .expect("ICE should have failed in naming")
     }
 
-    pub fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> &Vec<StructTypeParameter> {
-        &self.struct_definition(m, n).type_parameters
-    }
-
-    fn function_info(&self, m: &ModuleIdent, n: &FunctionName) -> &FunctionInfo {
+    pub fn function_info(&self, m: &ModuleIdent, n: &FunctionName) -> &FunctionInfo {
         self.module_info(m)
             .functions
             .get(n)
@@ -349,7 +349,7 @@ impl<'env> Context<'env> {
             LoopInfo_::NotInLoop => (),
             LoopInfo_::BreakTypeUnknown | LoopInfo_::BreakType(_) => {
                 self.loop_info.0 = LoopInfo_::BreakType(Box::new(t))
-            }
+            },
         }
     }
 
@@ -471,11 +471,20 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
                 None if subst.is_num_var(last_id) => return "integer".to_string(),
                 None => "_".to_string(),
             }
-        }
+        },
         Apply(_, sp!(_, TypeName_::Multiple(_)), tys) => {
             let inner = format_comma(tys.iter().map(|s| error_format_nested(s, subst)));
             format!("({})", inner)
-        }
+        },
+        Apply(_, sp!(_, TypeName_::Builtin(sp!(_, BuiltinTypeName_::Fun))), tys) => {
+            assert!(!tys.is_empty(), "ICE invalid function type");
+            let k = tys.len() - 1;
+            format!(
+                "|{}|{}",
+                format_comma(tys[0..k].iter().map(|t| error_format_nested(t, subst))),
+                error_format_nested(&tys[k], subst)
+            )
+        },
         Apply(_, n, tys) => {
             let tys_str = if !tys.is_empty() {
                 format!(
@@ -486,7 +495,7 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
                 "".to_string()
             };
             format!("{}{}", n, tys_str)
-        }
+        },
         Param(tp) => tp.user_specified_name.value.to_string(),
         Ref(mut_, ty) => format!(
             "&{}{}",
@@ -505,7 +514,25 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
 // Type utils
 //**************************************************************************************************
 
-pub fn infer_abilities(context: &Context, subst: &Subst, ty: Type) -> AbilitySet {
+pub trait InferAbilityContext {
+    fn struct_declared_abilities(&self, m: &ModuleIdent, n: &StructName) -> AbilitySet;
+    fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> Vec<StructTypeParameter>;
+}
+
+impl<'env> InferAbilityContext for Context<'env> {
+    fn struct_declared_abilities(&self, m: &ModuleIdent, n: &StructName) -> AbilitySet {
+        self.struct_definition(m, n).abilities.clone()
+    }
+
+    fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> Vec<StructTypeParameter> {
+        self.struct_definition(m, n).type_parameters.clone()
+    }
+}
+
+pub fn infer_abilities<C>(context: &C, subst: &Subst, ty: Type) -> AbilitySet
+where
+    C: InferAbilityContext,
+{
     use Type_ as T;
     let loc = ty.loc;
     match unfold_type(subst, ty).value {
@@ -519,7 +546,7 @@ pub fn infer_abilities(context: &Context, subst: &Subst, ty: Type) -> AbilitySet
                 TypeName_::Multiple(_) => (AbilitySet::collection(loc), ty_args),
                 TypeName_::Builtin(b) => (b.value.declared_abilities(b.loc), ty_args),
                 TypeName_::ModuleType(m, n) => {
-                    let declared_abilities = context.struct_declared_abilities(m, n).clone();
+                    let declared_abilities = context.struct_declared_abilities(m, n);
                     let non_phantom_ty_args = ty_args
                         .into_iter()
                         .zip(context.struct_tparams(m, n))
@@ -527,7 +554,7 @@ pub fn infer_abilities(context: &Context, subst: &Subst, ty: Type) -> AbilitySet
                         .map(|(arg, _)| arg)
                         .collect::<Vec<_>>();
                     (declared_abilities, non_phantom_ty_args)
-                }
+                },
             };
             let ty_args_abilities = ty_args
                 .into_iter()
@@ -540,7 +567,7 @@ pub fn infer_abilities(context: &Context, subst: &Subst, ty: Type) -> AbilitySet
                     .all(|ty_arg_abilities| ty_arg_abilities.has_ability_(requirement))
             }))
             .unwrap()
-        }
+        },
     }
 }
 
@@ -562,10 +589,10 @@ fn debug_abilities_info(context: &Context, ty: &Type) -> (Option<Loc>, AbilitySe
         }) => (Some(user_specified_name.loc), abilities.clone(), vec![]),
         T::Apply(_, sp!(_, TypeName_::Multiple(_)), ty_args) => {
             (None, AbilitySet::collection(loc), ty_args.clone())
-        }
+        },
         T::Apply(_, sp!(_, TypeName_::Builtin(b)), ty_args) => {
             (None, b.value.declared_abilities(b.loc), ty_args.clone())
-        }
+        },
         T::Apply(_, sp!(_, TypeName_::ModuleType(m, n)), ty_args) => (
             Some(context.struct_declared_loc(m, n)),
             context.struct_declared_abilities(m, n).clone(),
@@ -605,7 +632,7 @@ pub fn make_struct_type(
                 .collect();
             let ty_args = make_tparams(context, loc, TVarCase::Base, constraints);
             (sp(loc, Type_::Apply(None, tn, ty_args.clone())), ty_args)
-        }
+        },
         Some(ty_args) => {
             let tapply_ = instantiate_apply(context, loc, None, tn, ty_args);
             let targs = match &tapply_ {
@@ -613,7 +640,7 @@ pub fn make_struct_type(
                 _ => panic!("ICE instantiate_apply returned non Apply"),
             };
             (sp(loc, tapply_), targs)
-        }
+        },
     }
 }
 
@@ -659,7 +686,7 @@ pub fn make_field_types(
             N::StructFields::Defined(m.ref_map(|_, (idx, field_ty)| {
                 (*idx, subst_tparams(tparam_subst, field_ty.clone()))
             }))
-        }
+        },
     }
 }
 
@@ -683,7 +710,7 @@ pub fn make_field_type(
                 (nloc, "Struct declared 'native' here")
             ));
             return context.error_type(loc);
-        }
+        },
         N::StructFields::Defined(m) => m,
     };
     match fields_map.get(field).cloned() {
@@ -693,7 +720,7 @@ pub fn make_field_type(
                 (loc, format!("Unbound field '{}' in '{}::{}'", field, m, n)),
             ));
             context.error_type(loc)
-        }
+        },
         Some((_, field_ty)) => {
             let tparam_subst = &make_tparam_subst(
                 context
@@ -704,7 +731,7 @@ pub fn make_field_type(
                 ty_args,
             );
             subst_tparams(tparam_subst, field_ty)
-        }
+        },
     }
 }
 
@@ -776,7 +803,7 @@ pub fn make_function_type(
         None => {
             let locs_constraints = constraints.into_iter().map(|k| (loc, k)).collect();
             make_tparams(context, loc, TVarCase::Base, locs_constraints)
-        }
+        },
         Some(ty_args) => {
             let ty_args = check_type_argument_arity(
                 context,
@@ -786,7 +813,7 @@ pub fn make_function_type(
                 &constraints,
             );
             instantiate_type_args(context, loc, None, ty_args, constraints)
-        }
+        },
     };
 
     let finfo = context.function_info(m, f);
@@ -818,8 +845,9 @@ pub fn make_function_type(
                 (loc, format!("Invalid call to '{}::{}'", m, f)),
                 (defined_loc, internal_msg),
             ));
-        }
-        Visibility::Friend(_) if in_current_module || context.current_module_is_a_friend_of(m) => {}
+        },
+        Visibility::Friend(_) if in_current_module || context.current_module_is_a_friend_of(m) => {
+        },
         Visibility::Friend(vis_loc) => {
             let internal_msg = format!(
                 "This function can only be called from a 'friend' of module '{}'",
@@ -830,7 +858,7 @@ pub fn make_function_type(
                 (loc, format!("Invalid call to '{}::{}'", m, f)),
                 (vis_loc, internal_msg),
             ));
-        }
+        },
         Visibility::Public(_) => (),
     };
     (defined_loc, ty_args, params, acquires, return_ty)
@@ -850,7 +878,7 @@ pub fn solve_constraints(context: &mut Context) {
             Type_::UnresolvedError | Type_::Anything => {
                 let next_subst = join(subst, &Type_::u64(loc), &tvar).unwrap().0;
                 subst = next_subst;
-            }
+            },
             _ => (),
         }
     }
@@ -867,19 +895,19 @@ pub fn solve_constraints(context: &mut Context) {
             } => solve_ability_constraint(context, loc, msg, ty, constraints),
             Constraint::NumericConstraint(loc, op, t) => {
                 solve_builtin_type_constraint(context, BT::numeric(), loc, op, t)
-            }
+            },
             Constraint::BitsConstraint(loc, op, t) => {
                 solve_builtin_type_constraint(context, BT::bits(), loc, op, t)
-            }
+            },
             Constraint::OrderedConstraint(loc, op, t) => {
                 solve_builtin_type_constraint(context, BT::ordered(), loc, op, t)
-            }
+            },
             Constraint::BaseTypeConstraint(loc, msg, t) => {
                 solve_base_type_constraint(context, loc, msg, &t)
-            }
+            },
             Constraint::SingleTypeConstraint(loc, msg, t) => {
                 solve_single_type_constraint(context, loc, msg, &t)
-            }
+            },
         }
     }
 }
@@ -961,7 +989,6 @@ pub fn ability_not_satisified_tips<'a>(
         // Type has the ability but a type argument causes it to fail
         (_, true) => {
             let requirement = constraint.requires();
-            let mut label_added = false;
             for (ty_arg, ty_arg_abilities) in ty_args {
                 if !ty_arg_abilities.has_ability_(requirement) {
                     let ty_arg_str = error_format(ty_arg, subst);
@@ -974,12 +1001,10 @@ pub fn ability_not_satisified_tips<'a>(
                         requirement = requirement,
                     );
                     diag.add_secondary_label((ty_arg.loc, msg));
-                    label_added = true;
                     break;
                 }
             }
-            assert!(label_added)
-        }
+        },
     }
 }
 
@@ -1022,7 +1047,7 @@ fn solve_builtin_type_constraint(
                 );
             }
             assert!(args.is_empty());
-        }
+        },
         _ => {
             let tmsg = mk_tmsg();
             context.env.add_diag(diag!(
@@ -1030,7 +1055,7 @@ fn solve_builtin_type_constraint(
                 (loc, format!("Invalid argument to '{}'", op)),
                 (tloc, tmsg)
             ))
-        }
+        },
     }
 }
 
@@ -1048,7 +1073,7 @@ fn solve_base_type_constraint(context: &mut Context, loc: Loc, msg: String, ty: 
                 (loc, msg),
                 (tyloc, tmsg)
             ))
-        }
+        },
         UnresolvedError | Anything | Param(_) | Apply(_, _, _) => (),
     }
 }
@@ -1069,7 +1094,7 @@ fn solve_single_type_constraint(context: &mut Context, loc: Loc, msg: String, ty
                 (loc, msg),
                 (tyloc, tmsg)
             ))
-        }
+        },
         UnresolvedError | Anything | Ref(_, _) | Param(_) | Apply(_, _, _) => (),
     }
 }
@@ -1087,7 +1112,7 @@ pub fn unfold_type(subst: &Subst, sp!(loc, t_): Type) -> Type {
                 None => sp(loc, Type_::Anything),
                 Some(inner) => inner.clone(),
             }
-        }
+        },
         x => sp(loc, x),
     }
 }
@@ -1104,7 +1129,7 @@ pub fn best_loc(subst: &Subst, sp!(loc, t_): &Type) -> Loc {
                 None => *loc,
                 Some(sp!(inner_loc, _)) => *inner_loc,
             }
-        }
+        },
         _ => *loc,
     }
 }
@@ -1143,7 +1168,7 @@ pub fn subst_tparams(subst: &TParamSubst, sp!(loc, t_): Type) -> Type {
                 .map(|t| subst_tparams(subst, t))
                 .collect();
             sp(loc, Apply(k, n, ftys))
-        }
+        },
     }
 }
 
@@ -1155,7 +1180,7 @@ pub fn ready_tvars(subst: &Subst, sp!(loc, t_): Type) -> Type {
         Apply(k, n, tys) => {
             let tys = tys.into_iter().map(|t| ready_tvars(subst, t)).collect();
             sp(loc, Apply(k, n, tys))
-        }
+        },
         Var(i) => {
             let last_var = forward_tvar(subst, i);
             match subst.get(last_var) {
@@ -1163,7 +1188,7 @@ pub fn ready_tvars(subst: &Subst, sp!(loc, t_): Type) -> Type {
                 None => sp(loc, Var(last_var)),
                 Some(t) => ready_tvars(subst, t.clone()),
             }
-        }
+        },
     }
 }
 
@@ -1181,10 +1206,10 @@ pub fn instantiate(context: &mut Context, sp!(loc, t_): Type) -> Type {
             let inner = *b;
             context.add_base_type_constraint(loc, "Invalid reference type", inner.clone());
             Ref(mut_, Box::new(instantiate(context, inner)))
-        }
+        },
         Apply(abilities_opt, n, ty_args) => {
             instantiate_apply(context, loc, abilities_opt, n, ty_args)
-        }
+        },
         x @ Param(_) => x,
         Var(_) => panic!("ICE instantiate type variable"),
     };
@@ -1200,16 +1225,16 @@ fn instantiate_apply(
     ty_args: Vec<Type>,
 ) -> Type_ {
     let tparam_constraints: Vec<AbilitySet> = match &n {
-        sp!(nloc, N::TypeName_::Builtin(b)) => b.value.tparam_constraints(*nloc),
+        sp!(nloc, N::TypeName_::Builtin(b)) => b.value.tparam_constraints(*nloc, ty_args.len()),
         sp!(_, N::TypeName_::Multiple(len)) => {
             debug_assert!(abilities_opt.is_none(), "ICE instantiated expanded type");
             (0..*len).map(|_| AbilitySet::empty()).collect()
-        }
+        },
         sp!(_, N::TypeName_::ModuleType(m, s)) => {
             debug_assert!(abilities_opt.is_none(), "ICE instantiated expanded type");
             let tps = context.struct_tparams(m, s);
             tps.iter().map(|tp| tp.param.abilities.clone()).collect()
-        }
+        },
     };
 
     let tys = instantiate_type_args(context, loc, Some(&n.value), ty_args, tparam_constraints);
@@ -1237,7 +1262,10 @@ fn instantiate_type_args(
     let tvar_case = match n {
         Some(TypeName_::Multiple(_)) => {
             TVarCase::Single("Invalid expression list type argument".to_owned())
-        }
+        },
+        Some(TypeName_::Builtin(sp!(_, BuiltinTypeName_::Fun))) => {
+            TVarCase::Function("Invalid expression list type argument".to_owned())
+        },
         None | Some(TypeName_::Builtin(_)) | Some(TypeName_::ModuleType(_, _)) => TVarCase::Base,
     };
     let tvars = make_tparams(context, loc, tvar_case, locs_constraints);
@@ -1298,6 +1326,7 @@ fn check_type_argument_arity<F: FnOnce() -> String>(
 
 enum TVarCase {
     Single(String),
+    Function(String),
     Base,
 }
 
@@ -1307,16 +1336,23 @@ fn make_tparams(
     case: TVarCase,
     tparam_constraints: Vec<(Loc, AbilitySet)>,
 ) -> Vec<Type> {
+    let arity = tparam_constraints.len();
     tparam_constraints
         .into_iter()
-        .map(|(vloc, constraint)| {
+        .enumerate()
+        .map(|(i, (vloc, constraint))| {
             let tvar = make_tvar(context, vloc);
             context.add_ability_set_constraint(loc, None::<String>, tvar.clone(), constraint);
             match &case {
-                TVarCase::Single(msg) => context.add_single_type_constraint(loc, msg, tvar.clone()),
+                TVarCase::Function(_) if i + 1 == arity => {
+                    // Last arg (return type of a function): do not add any constraint
+                },
+                TVarCase::Function(msg) | TVarCase::Single(msg) => {
+                    context.add_single_type_constraint(loc, msg, tvar.clone())
+                },
                 TVarCase::Base => {
                     context.add_base_type_constraint(loc, "Invalid type argument", tvar.clone())
-                }
+                },
             };
             tvar
         })
@@ -1369,7 +1405,7 @@ fn join_impl(
                     // if 1 is imm and 2 is mut, use loc1. Else, loc2
                     let loc = if !*mut1 && *mut2 { *loc1 } else { *loc2 };
                     (loc, *mut1 && *mut2)
-                }
+                },
                 // imm <: imm
                 // mut <: imm
                 (Subtype, false, false) | (Subtype, true, false) => (*loc2, false),
@@ -1381,16 +1417,16 @@ fn join_impl(
                         Box::new(lhs.clone()),
                         Box::new(rhs.clone()),
                     ))
-                }
+                },
             };
             let (subst, t) = join_impl(subst, case, t1, t2)?;
             Ok((subst, sp(loc, Ref(mut_, Box::new(t)))))
-        }
+        },
         (sp!(_, Param(TParam { id: id1, .. })), sp!(_, Param(TParam { id: id2, .. })))
             if id1 == id2 =>
         {
             Ok((subst, rhs.clone()))
-        }
+        },
         (sp!(_, Apply(_, sp!(_, Multiple(n1)), _)), sp!(_, Apply(_, sp!(_, Multiple(n2)), _)))
             if n1 != n2 =>
         {
@@ -1400,7 +1436,7 @@ fn join_impl(
                 *n2,
                 Box::new(rhs.clone()),
             ))
-        }
+        },
         (sp!(_, Apply(k1, n1, tys1)), sp!(loc, Apply(k2, n2, tys2))) if n1 == n2 => {
             assert!(
                 k1 == k2,
@@ -1410,16 +1446,18 @@ fn join_impl(
                 k1,
                 k2
             );
-            let (subst, tys) = join_impl_types(subst, case, tys1, tys2)?;
+            let arity = tys1.len();
+            let (subst, tys) =
+                join_impl_types(subst, case, |pos| n1.value.variance(pos, arity), tys1, tys2)?;
             Ok((subst, sp(*loc, Apply(k2.clone(), n2.clone(), tys))))
-        }
+        },
         (sp!(loc1, Var(id1)), sp!(loc2, Var(id2))) => {
             if *id1 == *id2 {
                 Ok((subst, sp(*loc2, Var(*id2))))
             } else {
                 join_tvar(subst, case, *loc1, *id1, *loc2, *id2)
             }
-        }
+        },
         (sp!(loc, Var(id)), other) if subst.get(*id).is_none() => {
             if join_bind_tvar(&mut subst, *loc, *id, other.clone())? {
                 Ok((subst, sp(*loc, Var(*id))))
@@ -1429,7 +1467,7 @@ fn join_impl(
                     Box::new(other.clone()),
                 ))
             }
-        }
+        },
         (other, sp!(loc, Var(id))) if subst.get(*id).is_none() => {
             if join_bind_tvar(&mut subst, *loc, *id, other.clone())? {
                 Ok((subst, sp(*loc, Var(*id))))
@@ -1439,21 +1477,21 @@ fn join_impl(
                     Box::new(sp(*loc, Var(*id))),
                 ))
             }
-        }
+        },
         (sp!(loc, Var(id)), other) => {
             let new_tvar = TVar::next();
             subst.insert(new_tvar, other.clone());
             join_tvar(subst, case, *loc, *id, other.loc, new_tvar)
-        }
+        },
         (other, sp!(loc, Var(id))) => {
             let new_tvar = TVar::next();
             subst.insert(new_tvar, other.clone());
             join_tvar(subst, case, other.loc, new_tvar, *loc, *id)
-        }
+        },
 
         (sp!(_, UnresolvedError), other) | (other, sp!(_, UnresolvedError)) => {
             Ok((subst, other.clone()))
-        }
+        },
         _ => Err(TypingError::Incompatible(
             Box::new(lhs.clone()),
             Box::new(rhs.clone()),
@@ -1464,14 +1502,18 @@ fn join_impl(
 fn join_impl_types(
     mut subst: Subst,
     case: TypingCase,
+    variance: impl Fn(usize) -> Variance,
     tys1: &[Type],
     tys2: &[Type],
 ) -> Result<(Subst, Vec<Type>), TypingError> {
     // if tys1.len() != tys2.len(), we will get an error when instantiating the type elsewhere
     // as all types are instantiated as a sanity check
     let mut tys = vec![];
-    for (ty1, ty2) in tys1.iter().zip(tys2) {
-        let (nsubst, t) = join_impl(subst, case, ty1, ty2)?;
+    for (pos, (ty1, ty2)) in tys1.iter().zip(tys2).enumerate() {
+        let (nsubst, t) = match (case, variance(pos)) {
+            (TypingCase::Subtype, Variance::ContraVariant) => join_impl(subst, case, ty2, ty1)?,
+            _ => join_impl(subst, case, ty1, ty2)?,
+        };
         subst = nsubst;
         tys.push(t)
     }
@@ -1505,7 +1547,7 @@ fn join_tvar(
         (_, Some(nloc)) | (Some(nloc), _) => {
             let nloc = *nloc;
             subst.set_num_var(new_tvar, nloc);
-        }
+        },
         _ => (),
     }
     subst.insert(last_id1, sp(loc1, Var(new_tvar)));
@@ -1528,7 +1570,7 @@ fn join_tvar(
                 };
                 Err(TypingError::Incompatible(Box::new(ty1), Box::new(ty2)))
             }
-        }
+        },
     }
 }
 
@@ -1553,7 +1595,7 @@ fn join_bind_tvar(subst: &mut Subst, loc: Loc, tvar: TVar, ty: Type) -> Result<b
         match t_ {
             T::Var(v) => {
                 used.insert(*v, *loc);
-            }
+            },
             T::Ref(_, inner) => used_tvars(used, inner),
             T::Apply(_, _, inners) => inners
                 .iter()
@@ -1598,7 +1640,30 @@ fn check_num_tvar_(subst: &Subst, ty: &Type) -> bool {
                 None => subst.is_num_var(last_tvar),
                 Some(t) => check_num_tvar_(subst, t),
             }
-        }
+        },
         _ => false,
+    }
+}
+//**************************************************************************************************
+// Function type check
+//**************************************************************************************************
+
+pub fn check_non_fun(context: &mut Context, ty: &Type) {
+    if let sp!(
+        loc,
+        Type_::Apply(
+            _,
+            sp!(_, TypeName_::Builtin(sp!(_, BuiltinTypeName_::Fun))),
+            _
+        )
+    ) = ty
+    {
+        context.env.add_diag(diag!(
+            TypeSafety::InvalidFunctionType,
+            (
+                *loc,
+                "function type only allowed for inline function arguments"
+            )
+        ))
     }
 }

@@ -4,23 +4,6 @@
 
 // Transformation which injects specifications (Move function spec blocks) into the bytecode.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-};
-
-use itertools::Itertools;
-
-use move_model::{
-    ast,
-    ast::{Exp, ExpData, TempIndex, Value},
-    exp_generator::ExpGenerator,
-    model::{FunId, FunctionEnv, GlobalEnv, Loc, ModuleId, QualifiedId, QualifiedInstId, StructId},
-    pragmas::{ABORTS_IF_IS_PARTIAL_PRAGMA, EMITS_IS_PARTIAL_PRAGMA, EMITS_IS_STRICT_PRAGMA},
-    spec_translator::{SpecTranslator, TranslatedSpec},
-    ty::{Type, TypeDisplayContext, BOOL_TYPE, NUM_TYPE},
-};
-
 use crate::{
     function_data_builder::FunctionDataBuilder,
     function_target::{FunctionData, FunctionTarget},
@@ -34,7 +17,21 @@ use crate::{
         AbortAction, AssignKind, AttrId, BorrowEdge, BorrowNode, Bytecode, HavocKind, Label,
         Operation, PropKind,
     },
-    usage_analysis, verification_analysis,
+    usage_analysis, verification_analysis, COMPILED_MODULE_AVAILABLE,
+};
+use itertools::Itertools;
+use move_model::{
+    ast,
+    ast::{Exp, ExpData, TempIndex, Value},
+    exp_generator::ExpGenerator,
+    model::{FunId, FunctionEnv, GlobalEnv, Loc, ModuleId, QualifiedId, QualifiedInstId, StructId},
+    pragmas::{ABORTS_IF_IS_PARTIAL_PRAGMA, EMITS_IS_PARTIAL_PRAGMA, EMITS_IS_STRICT_PRAGMA},
+    spec_translator::{SpecTranslator, TranslatedSpec},
+    ty::{Type, TypeDisplayContext, BOOL_TYPE, NUM_TYPE},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
 };
 
 const REQUIRES_FAILS_MESSAGE: &str = "precondition does not hold at this call";
@@ -54,10 +51,7 @@ fn modify_check_fails_message(
     let targs_str = if targs.is_empty() {
         "".to_string()
     } else {
-        let tctx = TypeDisplayContext::WithEnv {
-            env,
-            type_param_names: None,
-        };
+        let tctx = TypeDisplayContext::new(env);
         format!(
             "<{}>",
             targs
@@ -69,7 +63,7 @@ fn modify_check_fails_message(
     let module_env = env.get_module(mem.module_id);
     format!(
         "caller does not have permission to modify `{}::{}{}` at given address",
-        module_env.get_name().display(env.symbol_pool()),
+        module_env.get_name().display(env),
         module_env
             .get_struct(mem.id)
             .get_name()
@@ -161,7 +155,7 @@ impl FunctionTargetProcessor for SpecInstrumentationProcessor {
             }
             for ref fun in module.get_functions() {
                 for (variant, target) in targets.get_targets(fun) {
-                    let spec = target.get_spec();
+                    let spec = &*target.get_spec();
                     if !spec.conditions.is_empty() {
                         writeln!(
                             f,
@@ -192,6 +186,7 @@ struct Instrumenter<'a> {
 }
 
 impl<'a> Instrumenter<'a> {
+    #[allow(clippy::needless_collect)]
     fn run(
         options: &'a ProverOptions,
         targets: &mut FunctionTargetsHolder,
@@ -216,8 +211,9 @@ impl<'a> Instrumenter<'a> {
         // instruction into `Assign(r.., t..); Jump(RetLab)`.
         let ret_locals = builder
             .data
-            .return_types
+            .result_type
             .clone()
+            .flatten()
             .into_iter()
             .map(|ty| builder.new_temp(ty))
             .collect_vec();
@@ -246,7 +242,7 @@ impl<'a> Instrumenter<'a> {
         );
 
         // Translate inlined properties. This deals with elimination of `old(..)` expressions in
-        // inlined spec blocks
+        // ilined spec blocks
         let inlined_props: BTreeMap<_, _> = props
             .into_iter()
             .map(|(id, prop)| {
@@ -410,7 +406,7 @@ impl<'a> Instrumenter<'a> {
                     &addr_exp,
                     addr_exp.clone(),
                 );
-            }
+            },
             Call(id, _, MoveTo(mid, sid, targs), srcs, _) => {
                 let addr_exp = self.builder.mk_temporary(srcs[1]);
                 self.generate_modifies_check(
@@ -421,8 +417,8 @@ impl<'a> Instrumenter<'a> {
                     &addr_exp,
                     addr_exp.clone(),
                 );
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         // Instrument bytecode.
@@ -436,7 +432,7 @@ impl<'a> Instrumenter<'a> {
                 let ret_label = self.ret_label;
                 self.builder.emit_with(|id| Jump(id, ret_label));
                 self.can_return = true;
-            }
+            },
             Abort(id, code) => {
                 self.builder.set_loc_from_attr(id);
                 let abort_local = self.abort_local;
@@ -445,10 +441,10 @@ impl<'a> Instrumenter<'a> {
                     .emit_with(|id| Assign(id, abort_local, code, AssignKind::Move));
                 self.builder.emit_with(|id| Jump(id, abort_label));
                 self.can_abort = true;
-            }
+            },
             Call(id, dests, Function(mid, fid, targs), srcs, aa) => {
                 self.instrument_call(id, dests, mid, fid, targs, srcs, aa);
-            }
+            },
             Call(id, dests, oper, srcs, _) if oper.can_abort() => {
                 self.builder.emit(Call(
                     id,
@@ -458,23 +454,24 @@ impl<'a> Instrumenter<'a> {
                     Some(AbortAction(self.abort_label, self.abort_local)),
                 ));
                 self.can_abort = true;
-            }
+            },
             Prop(id, kind @ PropKind::Assume, prop) | Prop(id, kind @ PropKind::Assert, prop) => {
                 match inlined_props.get(&id) {
                     None => {
                         self.builder.emit(Prop(id, kind, prop));
-                    }
+                    },
                     Some((translated_spec, exp)) => {
-                        // Logic specifically for generating code of updating global spec variables in the function body
-                        if *exp == prop && !translated_spec.updates.is_empty() {
-                            self.emit_updates(translated_spec);
+                        let binding = self.builder.fun_env.get_spec();
+                        let cond_opt = binding.update_map.get(&prop.node_id());
+                        if cond_opt.is_some() {
+                            self.emit_updates(translated_spec, Some(prop));
                         } else {
                             self.emit_traces(translated_spec, exp);
                             self.builder.emit(Prop(id, kind, exp.clone()));
                         }
-                    }
+                    },
                 }
-            }
+            },
             _ => self.builder.emit(bc),
         }
     }
@@ -526,7 +523,7 @@ impl<'a> Instrumenter<'a> {
                         self.builder
                             .set_loc_and_vc_info(loc, REQUIRES_FAILS_MESSAGE);
                         Assert
-                    }
+                    },
                     FunctionVariant::Baseline => Assume,
                 };
                 self.builder.emit_with(|id| Prop(id, prop_kind, cond));
@@ -653,11 +650,11 @@ impl<'a> Instrumenter<'a> {
             // Emit placeholders for assuming well-formedness of return values and mutable ref
             // parameters.
             for idx in mut_srcs.into_iter().chain(dests.iter().cloned()) {
-                let exp = self.builder.mk_call(
-                    &BOOL_TYPE,
-                    ast::Operation::WellFormed,
-                    vec![self.builder.mk_temporary(idx)],
-                );
+                let exp = self
+                    .builder
+                    .mk_call(&BOOL_TYPE, ast::Operation::WellFormed, vec![self
+                        .builder
+                        .mk_temporary(idx)]);
                 self.builder.emit_with(move |id| Prop(id, Assume, exp));
             }
 
@@ -665,7 +662,7 @@ impl<'a> Instrumenter<'a> {
             self.emit_lets(&callee_spec, true);
 
             // Emit spec var updates.
-            self.emit_updates(&callee_spec);
+            self.emit_updates(&callee_spec, None);
 
             // Emit post conditions as assumptions.
             for (_, cond) in std::mem::take(&mut callee_spec.post) {
@@ -726,7 +723,7 @@ impl<'a> Instrumenter<'a> {
         }
     }
 
-    fn emit_updates(&mut self, spec: &TranslatedSpec) {
+    fn emit_updates(&mut self, spec: &TranslatedSpec, prop_rhs_opt: Option<Exp>) {
         for (loc, lhs, rhs) in &spec.updates {
             // Emit update of lhs, which is guaranteed to represent a ghost memory access.
             // We generate the actual byte code operations which would appear on a regular
@@ -734,7 +731,12 @@ impl<'a> Instrumenter<'a> {
             // interpret this like any other memory access.
             self.builder.set_loc(loc.clone());
             self.emit_traces(spec, lhs);
-            self.emit_traces(spec, rhs);
+            let new_rhs = if let Some(ref prop_rhs) = prop_rhs_opt {
+                prop_rhs
+            } else {
+                rhs
+            };
+            self.emit_traces(spec, new_rhs);
 
             // Extract the ghost mem from lhs
             let (ghost_mem, _field_id, addr) = lhs
@@ -750,7 +752,7 @@ impl<'a> Instrumenter<'a> {
                 &ghost_mem_ty,
                 ghost_mem.inst.clone(),
                 ast::Operation::Pack(ghost_mem.module_id, ghost_mem.id),
-                vec![rhs.clone()],
+                vec![new_rhs.clone()],
             ));
 
             // Update memory. We create a mut ref for the location then write the value back to it.
@@ -961,7 +963,7 @@ impl<'a> Instrumenter<'a> {
         // function variants, as the evolution of state updates is always the same.
         let lets_emitted = if !spec.updates.is_empty() {
             self.emit_lets(spec, true);
-            self.emit_updates(spec);
+            self.emit_updates(spec, None);
             true
         } else {
             false
@@ -1090,8 +1092,10 @@ fn check_modifies(env: &GlobalEnv, targets: &FunctionTargetsHolder) {
     for module_env in env.get_modules() {
         if module_env.is_target() {
             for fun_env in module_env.get_functions() {
-                check_caller_callee_modifies_relation(env, targets, &fun_env);
-                check_opaque_modifies_completeness(env, targets, &fun_env);
+                if !fun_env.is_inline() {
+                    check_caller_callee_modifies_relation(env, targets, &fun_env);
+                    check_opaque_modifies_completeness(env, targets, &fun_env);
+                }
             }
         }
     }
@@ -1106,8 +1110,11 @@ fn check_caller_callee_modifies_relation(
         return;
     }
     let caller_func_target = targets.get_target(fun_env, &FunctionVariant::Baseline);
-    for callee in fun_env.get_called_functions() {
-        let callee_fun_env = env.get_function(callee);
+    for callee in fun_env
+        .get_called_functions()
+        .expect(COMPILED_MODULE_AVAILABLE)
+    {
+        let callee_fun_env = env.get_function(*callee);
         if callee_fun_env.is_native() || callee_fun_env.is_intrinsic() {
             continue;
         }

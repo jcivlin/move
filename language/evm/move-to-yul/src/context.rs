@@ -236,7 +236,7 @@ impl<'a> Context<'a> {
     /// Adds function and all its called functions to the targets.
     fn add_fun(targets: &mut FunctionTargetsHolder, fun: &FunctionEnv<'_>) {
         targets.add_target(fun);
-        for qid in fun.get_called_functions() {
+        for qid in fun.get_called_functions().cloned().unwrap_or_default() {
             let called_fun = fun.module_env.env.get_function(qid);
             if !targets.has_target(&called_fun, &FunctionVariant::Baseline) {
                 Self::add_fun(targets, &called_fun)
@@ -255,7 +255,6 @@ impl<'a> Context<'a> {
     pub fn derive_contracts(&self) -> Vec<Contract> {
         self.env
             .get_modules()
-            .into_iter()
             .filter_map(|ref m| {
                 if is_evm_contract_module(m) {
                     Some(self.extract_contract(m))
@@ -289,7 +288,7 @@ impl<'a> Context<'a> {
                     "only one #[storage] struct allowed per contract module",
                 );
                 None
-            }
+            },
         };
         // Identify special functions.
         let constructor = self.identify_function(module, is_create_fun, "#[create]/#[init]");
@@ -342,7 +341,7 @@ impl<'a> Context<'a> {
                     &format!("only one {} function allowed per contract module", attr_str),
                 );
                 None
-            }
+            },
         }
     }
 
@@ -520,6 +519,7 @@ impl<'a> Context<'a> {
         }
         true
     }
+
     /// Check whether given Move function has no generics; report error otherwise.
     pub fn check_no_generics(&self, fun: &FunctionEnv<'_>) {
         if fun.get_type_parameter_count() > 0 {
@@ -537,7 +537,11 @@ impl<'a> Context<'a> {
     pub fn make_contract_name(&self, module: &ModuleEnv) -> String {
         let mod_name = module.get_name();
         let mod_sym = module.symbol_pool().string(mod_name.name());
-        format!("A{}_{}", mod_name.addr().to_str_radix(16), mod_sym)
+        format!(
+            "A{}_{}",
+            mod_name.addr().expect_numerical().short_str_lossless(),
+            mod_sym
+        )
     }
 
     /// Make the name of function.
@@ -577,7 +581,7 @@ impl<'a> Context<'a> {
             Vector(et) => format!("vec{}", self.mangle_types(&[et.as_ref().to_owned()])),
             Struct(mid, sid, inst) => {
                 self.mangle_struct(&mid.qualified(*sid).instantiate(inst.clone()))
-            }
+            },
             TypeParameter(..) | Fun(..) | Tuple(..) | TypeDomain(..) | ResourceDomain(..)
             | Error | Var(..) | Reference(..) => format!("<<unsupported {:?}>>", ty),
         }
@@ -653,7 +657,7 @@ impl<'a> Context<'a> {
             Type::Struct(m, s, _) => {
                 let struct_id = m.qualified(*s);
                 self.is_u256(struct_id)
-            }
+            },
             _ => false,
         }
     }
@@ -665,7 +669,7 @@ impl<'a> Context<'a> {
                 let struct_env = self.env.get_struct(struct_id);
                 struct_env.get_full_name_with_address()
                     == format!("{}::Evm::Unit", EVM_MODULE_ADDRESS)
-            }
+            },
             _ => false,
         }
     }
@@ -774,7 +778,7 @@ impl<'a> Context<'a> {
                 Address | Signer => 32,
                 Num | Range | EventStore | U16 | U32 | U256 => {
                     panic!("unexpected field type")
-                }
+                },
             },
             Struct(..) | Vector(..) => 32,
             Tuple(_)
@@ -786,7 +790,7 @@ impl<'a> Context<'a> {
             | Error
             | Var(_) => {
                 panic!("unexpected field type")
-            }
+            },
         }
     }
 

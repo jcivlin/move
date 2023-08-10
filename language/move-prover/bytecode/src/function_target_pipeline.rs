@@ -2,28 +2,25 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use core::fmt;
-use std::{
-    cmp::Ordering,
-    collections::{btree_map::Entry as MapEntry, BTreeMap, BTreeSet},
-    fmt::Formatter,
-    fs,
-};
-
-use itertools::{Either, Itertools};
-use log::{debug, info};
-use petgraph::{
-    algo::has_path_connecting,
-    graph::{DiGraph, NodeIndex},
-};
-
-use move_model::model::{FunId, FunctionEnv, GlobalEnv, QualifiedId};
-
 use crate::{
     function_target::{FunctionData, FunctionTarget},
     print_targets_for_test,
     stackless_bytecode_generator::StacklessBytecodeGenerator,
     stackless_control_flow_graph::generate_cfg_in_dot_format,
+};
+use core::fmt;
+use itertools::{Either, Itertools};
+use log::{debug, info};
+use move_model::model::{FunId, FunctionEnv, GlobalEnv, QualifiedId};
+use petgraph::{
+    algo::has_path_connecting,
+    graph::{DiGraph, NodeIndex},
+};
+use std::{
+    cmp::Ordering,
+    collections::{btree_map::Entry as MapEntry, BTreeMap, BTreeSet},
+    fmt::Formatter,
+    fs,
 };
 
 /// A data structure which holds data for multiple function targets, and allows to
@@ -47,7 +44,7 @@ impl std::fmt::Display for VerificationFlavor {
             VerificationFlavor::Regular => write!(f, ""),
             VerificationFlavor::Instantiated(index) => {
                 write!(f, "instantiated_{}", index)
-            }
+            },
             VerificationFlavor::Inconsistency(flavor) => write!(f, "inconsistency_{}", flavor),
         }
     }
@@ -178,6 +175,10 @@ impl FunctionTargetsHolder {
 
     /// Adds a new function target. The target will be initialized from the Move byte code.
     pub fn add_target(&mut self, func_env: &FunctionEnv<'_>) {
+        // Skip inlined functions, they do not have associated bytecode.
+        if func_env.is_inline() {
+            return;
+        }
         let generator = StacklessBytecodeGenerator::new(func_env);
         let data = generator.generate_function();
         self.targets
@@ -224,6 +225,10 @@ impl FunctionTargetsHolder {
         &'env self,
         func_env: &'env FunctionEnv<'env>,
     ) -> Vec<(FunctionVariant, FunctionTarget<'env>)> {
+        assert!(
+            !func_env.is_inline(),
+            "attempt to get bytecode function target for inline function"
+        );
         self.targets
             .get(&func_env.get_qualified_id())
             .expect("function targets exist")
@@ -327,9 +332,9 @@ impl FunctionTargetPipeline {
         for fun_id in targets.get_funs() {
             let src_idx = nodes.get(&fun_id).unwrap();
             let fun_env = env.get_function(fun_id);
-            for callee in fun_env.get_called_functions() {
+            for callee in fun_env.get_called_functions().expect("called functions") {
                 let dst_idx = nodes
-                    .get(&callee)
+                    .get(callee)
                     .expect("callee is not in function targets");
                 graph.add_edge(*src_idx, *dst_idx, ());
             }
@@ -349,7 +354,12 @@ impl FunctionTargetPipeline {
             for node_idx in scc {
                 let fun_id = *graph.node_weight(node_idx).unwrap();
                 let fun_env = env.get_function(fun_id);
-                if !is_cyclic && fun_env.get_called_functions().contains(&fun_id) {
+                if !is_cyclic
+                    && fun_env
+                        .get_called_functions()
+                        .expect("called functions")
+                        .contains(&fun_id)
+                {
                     is_cyclic = true;
                 }
                 let inserted = part.insert(fun_id);
@@ -386,7 +396,7 @@ impl FunctionTargetPipeline {
                 None => (),
                 Some(scc) => {
                     scc_staging.insert(scc, vec![]);
-                }
+                },
             }
         }
 
@@ -396,7 +406,12 @@ impl FunctionTargetPipeline {
             let fun_env = env.get_function(fun);
             worklist.push((
                 fun,
-                fun_env.get_called_functions().into_iter().collect_vec(),
+                fun_env
+                    .get_called_functions()
+                    .expect("called functions")
+                    .iter()
+                    .cloned()
+                    .collect_vec(),
             ));
         }
 
@@ -421,7 +436,7 @@ impl FunctionTargetPipeline {
                     (false, false) => {
                         // Put functions with 0 calls first in line, at the end of the vector
                         callees2.len().cmp(&callees1.len())
-                    }
+                    },
                 }
             });
 
@@ -436,27 +451,27 @@ impl FunctionTargetPipeline {
                     // case 1: non-recursive call
                     assert!(callees.is_empty());
                     dep_ordered.push(Either::Left(call_id));
-                }
+                },
                 Some(scc) => {
                     // case 2: recursive call group
                     match scc_staging.entry(scc) {
                         MapEntry::Vacant(_) => {
                             panic!("all scc groups should be in staging")
-                        }
+                        },
                         MapEntry::Occupied(mut entry) => {
                             let scc_vec = entry.get_mut();
                             scc_vec.push(call_id);
                             if scc_vec.len() == scc.len() {
                                 dep_ordered.push(Either::Right(entry.remove()));
                             }
-                        }
+                        },
                     }
-                }
+                },
             }
 
             // update the worklist
             for (_, callees) in worklist.iter_mut() {
-                callees.retain(|e| e != &call_id);
+                callees.retain(|e| *e != call_id);
             }
         }
 
@@ -493,7 +508,7 @@ impl FunctionTargetPipeline {
                         Either::Left(fid) => {
                             let func_env = env.get_function(*fid);
                             targets.process(&func_env, processor.as_ref(), None);
-                        }
+                        },
                         Either::Right(scc) => 'fixedpoint: loop {
                             let scc_env: Vec<_> =
                                 scc.iter().map(|fid| env.get_function(*fid)).collect();
@@ -576,14 +591,11 @@ impl FunctionTargetPipeline {
         targets: &FunctionTargetsHolder,
         processor: &dyn FunctionTargetProcessor,
     ) -> String {
-        let mut dump = format!(
-            "{}",
-            ProcessorResultDisplay {
-                env,
-                targets,
-                processor,
-            }
-        );
+        let mut dump = format!("{}", ProcessorResultDisplay {
+            env,
+            targets,
+            processor,
+        });
         if !processor.is_single_run() {
             if !dump.is_empty() {
                 dump = format!("\n\n{}", dump);

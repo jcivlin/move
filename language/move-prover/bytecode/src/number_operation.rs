@@ -4,8 +4,9 @@
 
 //! This file defines types, data structures and corresponding functions to
 //! mark the operation (arithmetic or bitwise) that a variable or a field involves,
-//! which will be used later when the correct number type (int or bv<N>) in the boogie program
+//! which will be used later when the correct number type (`int` or `bv<N>`) in the boogie program
 
+use crate::COMPILED_MODULE_AVAILABLE;
 use itertools::Itertools;
 use move_model::{
     ast::{PropertyValue, TempIndex, Value},
@@ -13,7 +14,7 @@ use move_model::{
     pragmas::{BV_PARAM_PROP, BV_RET_PROP},
     ty::Type,
 };
-use std::{collections::BTreeMap, str};
+use std::{collections::BTreeMap, ops::Deref, str};
 
 static PARSING_ERROR: &str = "error happened when parsing the bv pragma";
 
@@ -197,8 +198,10 @@ impl GlobalNumberOperationState {
         // Obtain positions that are marked as Bitwise by analyzing the pragma
         let para_sym = &func_env.module_env.env.symbol_pool().make(BV_PARAM_PROP);
         let ret_sym = &func_env.module_env.env.symbol_pool().make(BV_RET_PROP);
-        let number_param_property = func_env.get_spec().properties.get(para_sym);
-        let number_ret_property = func_env.get_spec().properties.get(ret_sym);
+        let binding = func_env.get_spec();
+        let binding = binding.deref();
+        let number_param_property = binding.properties.get(para_sym);
+        let number_ret_property = binding.properties.get(ret_sym);
         let para_idx_vec = Self::extract_bv_vars(number_param_property);
         let ret_idx_vec = Self::extract_bv_vars(number_ret_property);
 
@@ -214,7 +217,7 @@ impl GlobalNumberOperationState {
             } else {
                 // If not appearing in the pragma, mark it as Arithmetic or Bottom
                 // Similar logic when populating ret_operation_map below
-                let local_ty = func_env.get_local_type(i);
+                let local_ty = func_env.get_local_type(i).expect(COMPILED_MODULE_AVAILABLE);
                 let arith_flag = if let Type::Reference(_, tr) = local_ty {
                     tr.is_number()
                 } else if let Type::Vector(tr) = local_ty {
@@ -235,7 +238,7 @@ impl GlobalNumberOperationState {
             if ret_idx_vec.contains(&i) {
                 default_ret_operation_map.insert(i, Bitwise);
             } else {
-                let ret_ty = func_env.get_return_type(i);
+                let ret_ty = func_env.get_result_type_at(i);
                 let arith_flag = if let Type::Reference(_, tr) = ret_ty {
                     tr.is_number()
                 } else if let Type::Vector(tr) = ret_ty {

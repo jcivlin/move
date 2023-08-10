@@ -146,27 +146,7 @@ module std::vector {
         pragma intrinsic = true;
     }
 
-    /// Insert `e` at position `i` in the vector `v`.
-    /// If `i` is in bounds, this shifts the old `v[i]` and all subsequent elements to the right.
-    /// If `i == length(v)`, this adds `e` to the end of the vector.
-    /// This is O(n) and preserves ordering of elements in the vector.
-    /// Aborts if `i > length(v)`
-    public fun insert<Element>(v: &mut vector<Element>, e: Element, i: u64) {
-        let len = length(v);
-        // i too big abort
-        if (i > len) abort EINDEX_OUT_OF_BOUNDS;
-
-        push_back(v, e);
-        while (i < len) {
-            swap(v, i, len);
-            i = i + 1
-        }
-    }
-    spec insert {
-        pragma intrinsic = true;
-    }
-
-    /// Swap the `i`th element of the vector `v` with the last element and then pop the vector.
+    /// Swap the `i`th element of the vector `v` with the last element and then pop the element.
     /// This is O(1), but does not preserve ordering of elements in the vector.
     /// Aborts if `i` is out of bounds.
     public fun swap_remove<Element>(v: &mut vector<Element>, i: u64): Element {
@@ -177,6 +157,67 @@ module std::vector {
     }
     spec swap_remove {
         pragma intrinsic = true;
+    }
+
+    /// Apply the function to each element in the vector, consuming it.
+    public inline fun for_each<Element>(v: vector<Element>, f: |Element|) {
+        reverse(&mut v); // We need to reverse the vector to consume it efficiently
+        while (!is_empty(&v)) {
+            let e = pop_back(&mut v);
+            f(e);
+        };
+    }
+
+    /// Apply the function to a reference of each element in the vector.
+    public inline fun for_each_ref<Element>(v: &vector<Element>, f: |&Element|) {
+        let i = 0;
+        while (i < length(v)) {
+            f(borrow(v, i));
+            i = i + 1
+        }
+    }
+
+    /// Apply the function to a mutable reference to each element in the vector.
+    public inline fun for_each_mut<Element>(v: &mut vector<Element>, f: |&mut Element|) {
+        let i = 0;
+        while (i < length(v)) {
+            f(borrow_mut(v, i));
+            i = i + 1
+        }
+    }
+
+    /// Fold the function over the elements. For example, `fold(vector[1,2,3], 0, f)` will execute
+    /// `f(f(f(0, 1), 2), 3)`
+    public inline fun fold<Accumulator, Element>(
+        v: vector<Element>,
+        init: Accumulator,
+        f: |Accumulator,Element|Accumulator
+    ): Accumulator {
+        let accu = init;
+        for_each(v, |elem| accu = f(accu, elem));
+        accu
+    }
+
+    /// Map the function over the elements of the vector, producing a new vector.
+    public inline fun map<Element, NewElement>(
+        v: vector<Element>,
+        f: |Element|NewElement
+    ): vector<NewElement> {
+        let result = vector<NewElement>[];
+        for_each(v, |elem| push_back(&mut result, f(elem)));
+        result
+    }
+
+    /// Filter the vector using the boolean function, removing all elements for which `p(e)` is not true.
+    public inline fun filter<Element:drop>(
+        v: vector<Element>,
+        p: |&Element|bool
+    ): vector<Element> {
+        let result = vector<Element>[];
+        for_each(v, |elem| {
+            if (p(&elem)) push_back(&mut result, elem);
+        });
+        result
     }
 
     // =================================================================
@@ -214,4 +255,5 @@ module std::vector {
             v1[i..len(v1)] == v2[i + 1..len(v2)]
         }
     }
+
 }

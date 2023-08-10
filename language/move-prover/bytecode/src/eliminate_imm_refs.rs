@@ -2,14 +2,13 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use move_model::{ast::TempIndex, model::FunctionEnv, ty::Type};
-
 use crate::{
     function_data_builder::FunctionDataBuilder,
     function_target::FunctionData,
     function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder},
     stackless_bytecode::{AssignKind, Bytecode, Operation},
 };
+use move_model::{ast::TempIndex, model::FunctionEnv, ty::Type};
 
 pub struct EliminateImmRefsProcessor {}
 
@@ -54,10 +53,16 @@ impl<'a> EliminateImmRefs<'a> {
             .into_iter()
             .map(|ty| self.transform_type(ty))
             .collect();
-        self.builder.data.return_types = std::mem::take(&mut self.builder.data.return_types)
-            .into_iter()
-            .map(|ty| self.transform_type(ty))
-            .collect();
+        self.builder.data.result_type = Type::tuple(
+            self.builder
+                .data
+                .result_type
+                .clone()
+                .flatten()
+                .into_iter()
+                .map(|ty| self.transform_type(ty))
+                .collect(),
+        );
     }
 
     fn transform_type(&self, ty: Type) -> Type {
@@ -83,12 +88,12 @@ impl<'a> EliminateImmRefs<'a> {
                 ReadRef if self.is_imm_ref(srcs[0]) => {
                     self.builder
                         .emit(Assign(attr_id, dests[0], srcs[0], AssignKind::Move));
-                }
+                },
                 FreezeRef => self.builder.emit(Call(attr_id, dests, ReadRef, srcs, None)),
                 BorrowLoc if self.is_imm_ref(dests[0]) => {
                     self.builder
                         .emit(Assign(attr_id, dests[0], srcs[0], AssignKind::Copy));
-                }
+                },
                 BorrowField(mid, sid, type_actuals, offset) if self.is_imm_ref(dests[0]) => {
                     self.builder.emit(Call(
                         attr_id,
@@ -97,7 +102,7 @@ impl<'a> EliminateImmRefs<'a> {
                         srcs,
                         aa,
                     ));
-                }
+                },
                 BorrowGlobal(mid, sid, type_actuals) if self.is_imm_ref(dests[0]) => {
                     self.builder.emit(Call(
                         attr_id,
@@ -106,10 +111,10 @@ impl<'a> EliminateImmRefs<'a> {
                         srcs,
                         aa,
                     ));
-                }
+                },
                 Destroy if self.is_imm_ref(srcs[0]) => {
                     // skip the destroy on an immutable ref
-                }
+                },
                 _ => self.builder.emit(Call(attr_id, dests, op, srcs, aa)),
             },
             _ => self.builder.emit(bytecode),

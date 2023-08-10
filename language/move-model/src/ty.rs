@@ -4,19 +4,17 @@
 
 //! Contains types and related functions.
 
+use crate::{
+    ast::QualifiedSymbol,
+    model::{GlobalEnv, ModuleId, QualifiedInstId, StructEnv, StructId},
+    symbol::Symbol,
+};
+use move_binary_format::{file_format::TypeParameterIndex, normalized::Type as MType};
+use move_core_types::language_storage::{StructTag, TypeTag};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     fmt::Formatter,
-};
-
-use move_binary_format::{file_format::TypeParameterIndex, normalized::Type as MType};
-use move_core_types::language_storage::{StructTag, TypeTag};
-
-use crate::{
-    ast::QualifiedSymbol,
-    model::{GlobalEnv, ModuleId, QualifiedInstId, StructEnv, StructId},
-    symbol::{Symbol, SymbolPool},
 };
 
 /// Represents a type.
@@ -32,7 +30,7 @@ pub enum Type {
     Reference(bool, Box<Type>),
 
     // Types only appearing in specifications
-    Fun(Vec<Type>, Box<Type>),
+    Fun(Box<Type>, Box<Type>),
     TypeDomain(Box<Type>),
     ResourceDomain(ModuleId, StructId, Option<Vec<Type>>),
 
@@ -104,8 +102,19 @@ impl PrimitiveType {
 }
 
 impl Type {
+    /// Create a new primitive type
     pub fn new_prim(p: PrimitiveType) -> Type {
         Type::Primitive(p)
+    }
+
+    /// Create a new type parameter
+    pub fn new_param(pos: usize) -> Type {
+        Type::TypeParameter(pos as u16)
+    }
+
+    /// Creates a unit type
+    pub fn unit() -> Type {
+        Type::Tuple(vec![])
     }
 
     /// Determines whether this is a type parameter.
@@ -187,6 +196,7 @@ impl Type {
         }
         false
     }
+
     /// Returns true if this is an address or signer type.
     pub fn is_signer_or_address(&self) -> bool {
         matches!(
@@ -301,7 +311,7 @@ impl Type {
 
     /// Convert a partial assignment for type parameters into an instantiation.
     pub fn type_param_map_to_inst(arity: usize, map: BTreeMap<u16, Type>) -> Vec<Type> {
-        let mut inst: Vec<_> = (0..arity).map(|i| Type::TypeParameter(i as u16)).collect();
+        let mut inst: Vec<_> = (0..arity).map(Type::new_param).collect();
         for (idx, ty) in map {
             inst[idx as usize] = ty;
         }
@@ -310,7 +320,9 @@ impl Type {
 
     /// A helper function to do replacement of type parameters.
     fn replace(&self, params: Option<&[Type]>, subs: Option<&Substitution>) -> Type {
-        let replace_vec = |types: &[Type]| types.iter().map(|t| t.replace(params, subs)).collect();
+        let replace_vec = |types: &[Type]| -> Vec<Type> {
+            types.iter().map(|t| t.replace(params, subs)).collect()
+        };
         match self {
             Type::TypeParameter(i) => {
                 if let Some(ps) = params {
@@ -318,7 +330,7 @@ impl Type {
                 } else {
                     self.clone()
                 }
-            }
+            },
             Type::Var(i) => {
                 if let Some(s) = subs {
                     if let Some(t) = s.subs.get(i) {
@@ -333,20 +345,21 @@ impl Type {
                 } else {
                     self.clone()
                 }
-            }
+            },
             Type::Reference(is_mut, bt) => {
                 Type::Reference(*is_mut, Box::new(bt.replace(params, subs)))
-            }
+            },
             Type::Struct(mid, sid, args) => Type::Struct(*mid, *sid, replace_vec(args)),
-            Type::Fun(args, result) => {
-                Type::Fun(replace_vec(args), Box::new(result.replace(params, subs)))
-            }
+            Type::Fun(arg, result) => Type::Fun(
+                Box::new(arg.replace(params, subs)),
+                Box::new(result.replace(params, subs)),
+            ),
             Type::Tuple(args) => Type::Tuple(replace_vec(args)),
             Type::Vector(et) => Type::Vector(Box::new(et.replace(params, subs))),
             Type::TypeDomain(et) => Type::TypeDomain(Box::new(et.replace(params, subs))),
             Type::ResourceDomain(mid, sid, args_opt) => {
                 Type::ResourceDomain(*mid, *sid, args_opt.as_ref().map(|args| replace_vec(args)))
-            }
+            },
             Type::Primitive(..) | Type::Error => self.clone(),
         }
     }
@@ -363,7 +376,7 @@ impl Type {
             match self {
                 Type::Reference(_, bt) => bt.contains(p),
                 Type::Struct(_, _, args) => contains_vec(args),
-                Type::Fun(args, result) => contains_vec(args) || result.contains(p),
+                Type::Fun(arg, result) => arg.contains(p) || result.contains(p),
                 Type::Tuple(args) => contains_vec(args),
                 Type::Vector(et) => et.contains(p),
                 _ => false,
@@ -377,7 +390,7 @@ impl Type {
         match self {
             Var(_) => true,
             Tuple(ts) => ts.iter().any(|t| t.is_incomplete()),
-            Fun(ts, r) => ts.iter().any(|t| t.is_incomplete()) || r.is_incomplete(),
+            Fun(a, r) => a.is_incomplete() || r.is_incomplete(),
             Struct(_, _, ts) => ts.iter().any(|t| t.is_incomplete()),
             Vector(et) => et.is_incomplete(),
             Reference(_, bt) => bt.is_incomplete(),
@@ -398,18 +411,18 @@ impl Type {
         use Type::*;
         match self {
             Tuple(ts) => ts.iter().for_each(|t| t.module_usage(usage)),
-            Fun(ts, r) => {
-                ts.iter().for_each(|t| t.module_usage(usage));
+            Fun(a, r) => {
+                a.module_usage(usage);
                 r.module_usage(usage);
-            }
+            },
             Struct(mid, _, ts) => {
                 usage.insert(*mid);
                 ts.iter().for_each(|t| t.module_usage(usage));
-            }
+            },
             Vector(et) => et.module_usage(usage),
             Reference(_, bt) => bt.module_usage(usage),
             TypeDomain(bt) => bt.module_usage(usage),
-            _ => {}
+            _ => {},
         }
     }
 
@@ -478,7 +491,7 @@ impl Type {
                     .map(|arg| Self::from_type_tag(arg, env))
                     .collect();
                 Struct(qid.module_id, qid.id, type_args)
-            }
+            },
             TypeTag::Vector(type_param) => Vector(Box::new(Self::from_type_tag(type_param, env))),
         }
     }
@@ -495,17 +508,17 @@ impl Type {
         match self {
             Var(id) => {
                 vars.insert(*id);
-            }
+            },
             Tuple(ts) => ts.iter().for_each(|t| t.internal_get_vars(vars)),
-            Fun(ts, r) => {
+            Fun(a, r) => {
+                a.internal_get_vars(vars);
                 r.internal_get_vars(vars);
-                ts.iter().for_each(|t| t.internal_get_vars(vars));
-            }
+            },
             Struct(_, _, ts) => ts.iter().for_each(|t| t.internal_get_vars(vars)),
             Vector(et) => et.internal_get_vars(vars),
             Reference(_, bt) => bt.internal_get_vars(vars),
             TypeDomain(bt) => bt.internal_get_vars(vars),
-            Error | Primitive(..) | TypeParameter(..) | ResourceDomain(..) => {}
+            Error | Primitive(..) | TypeParameter(..) | ResourceDomain(..) => {},
         }
     }
 
@@ -520,14 +533,38 @@ impl Type {
             Type::Vector(bt) => bt.visit(visitor),
             Type::Struct(_, _, tys) => visit_slice(tys, visitor),
             Type::Reference(_, ty) => ty.visit(visitor),
-            Type::Fun(tys, ty) => {
-                visit_slice(tys, visitor);
+            Type::Fun(a, ty) => {
+                a.visit(visitor);
                 ty.visit(visitor);
-            }
+            },
             Type::TypeDomain(bt) => bt.visit(visitor),
-            _ => {}
+            _ => {},
         }
         visitor(self)
+    }
+
+    /// If this is a tuple, return its elements, otherwise a vector with the given type.
+    pub fn flatten(self) -> Vec<Type> {
+        if let Type::Tuple(tys) = self {
+            tys
+        } else {
+            vec![self]
+        }
+    }
+
+    /// If this is a tuple and it has zero elements (the 'unit' type), return true.
+    pub fn is_unit(&self) -> bool {
+        matches!(self, Type::Tuple(ts) if ts.is_empty())
+    }
+
+    /// If this is a vector of more than one type, make a tuple out of it, otherwise return the
+    /// type.
+    pub fn tuple(mut tys: Vec<Type>) -> Type {
+        if tys.is_empty() || tys.len() > 1 {
+            Type::Tuple(tys)
+        } else {
+            tys.pop().unwrap()
+        }
     }
 }
 
@@ -574,7 +611,7 @@ impl Substitution {
                 } else {
                     self.get_substitution(*next_var, false)
                 }
-            }
+            },
             Some(subst_ty) => Some(subst_ty.clone()),
         }
     }
@@ -655,12 +692,12 @@ impl Substitution {
                 {
                     return Ok(Type::Primitive(PrimitiveType::Num));
                 }
-            }
+            },
             (Type::TypeParameter(idx1), Type::TypeParameter(idx2)) => {
                 if idx1 == idx2 {
                     return Ok(t1.clone());
                 }
-            }
+            },
             (Type::Tuple(ts1), Type::Tuple(ts2)) => {
                 return Ok(Type::Tuple(self.unify_vec(
                     sub_variance,
@@ -668,13 +705,13 @@ impl Substitution {
                     ts2,
                     "tuples",
                 )?));
-            }
-            (Type::Fun(ts1, r1), Type::Fun(ts2, r2)) => {
+            },
+            (Type::Fun(a1, r1), Type::Fun(a2, r2)) => {
                 return Ok(Type::Fun(
-                    self.unify_vec(sub_variance, ts1, ts2, "functions")?,
+                    Box::new(self.unify(sub_variance, a1, a2)?),
                     Box::new(self.unify(sub_variance, r1, r2)?),
                 ));
-            }
+            },
             (Type::Struct(m1, s1, ts1), Type::Struct(m2, s2, ts2)) => {
                 if m1 == m2 && s1 == s2 {
                     return Ok(Type::Struct(
@@ -683,18 +720,18 @@ impl Substitution {
                         self.unify_vec(sub_variance, ts1, ts2, "structs")?,
                     ));
                 }
-            }
+            },
             (Type::Vector(e1), Type::Vector(e2)) => {
                 return Ok(Type::Vector(Box::new(self.unify(sub_variance, e1, e2)?)));
-            }
+            },
             (Type::TypeDomain(e1), Type::TypeDomain(e2)) => {
                 return Ok(Type::TypeDomain(Box::new(self.unify(
                     sub_variance,
                     e1,
                     e2,
                 )?)));
-            }
-            _ => {}
+            },
+            _ => {},
         }
         Err(TypeUnificationError::TypeMismatch(
             self.specialize(t1),
@@ -785,10 +822,10 @@ impl Default for Substitution {
 /// and then performs unification of the terms. The resulting substitution
 /// is converted back to parameter instantiations.
 ///
-/// Example: consider a function f<X> which uses memory M<X, u64>, and invariant
-/// invariant<X> which uses memory M<bool, X>. Using this helper to unify both
-/// memories will result in instantiations which when applied create f<bool>
-/// and invariant<u64> respectively.
+/// Example: consider a function `f<X>` which uses memory `M<X, u64>`, and invariant
+/// `invariant<X>` which uses memory `M<bool, X>`. Using this helper to unify both
+/// memories will result in instantiations which when applied create `f<bool>`
+/// and `invariant<u64>` respectively.
 pub struct TypeUnificationAdapter {
     type_vars_map: BTreeMap<u16, (bool, TypeParameterIndex)>,
     types_adapted_lhs: Vec<Type>,
@@ -945,14 +982,14 @@ impl TypeUnificationAdapter {
                                     // If the original types do not contain free type
                                     // variables, this should not happen.
                                     panic!("unexpected type variable");
-                                }
+                                },
                                 Some((_, subs_param_idx)) => {
                                     // There can be either lhs or rhs type parameters left, but
                                     // not both sides, so it is unambiguous to just return it here.
                                     Type::TypeParameter(*subs_param_idx)
-                                }
+                                },
                             }
-                        }
+                        },
                         Some(subst_ty) => subst_ty.clone(),
                     };
                     let inst = if *is_lhs {
@@ -964,7 +1001,7 @@ impl TypeUnificationAdapter {
                 }
 
                 Some((inst_lhs, inst_rhs))
-            }
+            },
             Err(_) => None,
         }
     }
@@ -979,17 +1016,17 @@ impl TypeUnificationError {
                     t2.display(display_context),
                     t1.display(display_context),
                 )
-            }
+            },
             TypeUnificationError::ArityMismatch(item, a1, a2) => {
                 format!("{} have different arity ({} != {})", item, a1, a2)
-            }
+            },
             TypeUnificationError::CyclicSubstitution(t1, t2) => {
                 format!(
                     "[internal] type unification cycle check failed ({} =?= {})",
                     t1.display(display_context),
                     t2.display(display_context),
                 )
-            }
+            },
         }
     }
 }
@@ -1089,9 +1126,7 @@ impl TypeInstantiationDerivation {
     where
         I: Iterator<Item = &'a Type> + Clone,
     {
-        let initial_param_insts: Vec<_> = (0..params_arity)
-            .map(|idx| Type::TypeParameter(idx as TypeParameterIndex))
-            .collect();
+        let initial_param_insts: Vec<_> = (0..params_arity).map(Type::new_param).collect();
 
         let mut work_queue = VecDeque::new();
         work_queue.push_back(initial_param_insts);
@@ -1135,7 +1170,7 @@ impl TypeInstantiationDerivation {
                     let irrelevant_type = if mark_irrelevant_param_as_error {
                         Type::Error
                     } else {
-                        Type::TypeParameter(target_param_index as TypeParameterIndex)
+                        Type::new_param(target_param_index)
                     };
                     target_param_insts.insert(irrelevant_type);
                 }
@@ -1156,22 +1191,31 @@ impl TypeInstantiationDerivation {
 }
 
 /// Data providing context for displaying types.
-pub enum TypeDisplayContext<'a> {
-    WithoutEnv {
-        symbol_pool: &'a SymbolPool,
-        reverse_struct_table: &'a BTreeMap<(ModuleId, StructId), QualifiedSymbol>,
-    },
-    WithEnv {
-        env: &'a GlobalEnv,
-        type_param_names: Option<Vec<Symbol>>,
-    },
+pub struct TypeDisplayContext<'a> {
+    pub env: &'a GlobalEnv,
+    pub type_param_names: Option<Vec<Symbol>>,
+    // During type checking, the env might not contain the types yet of the currently checked
+    // module. This field allows to access symbolic information in this case.
+    pub builder_struct_table: Option<&'a BTreeMap<(ModuleId, StructId), QualifiedSymbol>>,
 }
 
 impl<'a> TypeDisplayContext<'a> {
-    pub fn symbol_pool(&self) -> &SymbolPool {
-        match self {
-            TypeDisplayContext::WithEnv { env, .. } => env.symbol_pool(),
-            TypeDisplayContext::WithoutEnv { symbol_pool, .. } => symbol_pool,
+    pub fn new(env: &'a GlobalEnv) -> TypeDisplayContext<'a> {
+        Self {
+            env,
+            type_param_names: None,
+            builder_struct_table: None,
+        }
+    }
+
+    pub fn new_with_params(
+        env: &'a GlobalEnv,
+        type_param_names: Vec<Symbol>,
+    ) -> TypeDisplayContext<'a> {
+        Self {
+            env,
+            type_param_names: Some(type_param_names),
+            builder_struct_table: None,
         }
     }
 }
@@ -1212,7 +1256,7 @@ impl<'a> fmt::Display for TypeDisplay<'a> {
                 f.write_str("(")?;
                 comma_list(f, ts)?;
                 f.write_str(")")
-            }
+            },
             Vector(t) => write!(f, "vector<{}>", t.display(self.context)),
             TypeDomain(t) => write!(f, "domain<{}>", t.display(self.context)),
             ResourceDomain(mid, sid, inst_opt) => {
@@ -1223,13 +1267,13 @@ impl<'a> fmt::Display for TypeDisplay<'a> {
                     f.write_str(">")?;
                 }
                 f.write_str(">")
-            }
-            Fun(ts, t) => {
+            },
+            Fun(a, t) => {
                 f.write_str("|")?;
-                comma_list(f, ts)?;
+                write!(f, "{}", a.display(self.context))?;
                 f.write_str("|")?;
                 write!(f, "{}", t.display(self.context))
-            }
+            },
             Struct(mid, sid, ts) => {
                 write!(f, "{}", self.struct_str(*mid, *sid))?;
                 if !ts.is_empty() {
@@ -1238,30 +1282,26 @@ impl<'a> fmt::Display for TypeDisplay<'a> {
                     f.write_str(">")?;
                 }
                 Ok(())
-            }
+            },
             Reference(is_mut, t) => {
                 f.write_str("&")?;
                 if *is_mut {
                     f.write_str("mut ")?;
                 }
                 write!(f, "{}", t.display(self.context))
-            }
+            },
             TypeParameter(idx) => {
-                if let TypeDisplayContext::WithEnv {
-                    env,
-                    type_param_names: Some(names),
-                } = self.context
-                {
+                if let Some(names) = &self.context.type_param_names {
                     let idx = *idx as usize;
                     if idx < names.len() {
-                        write!(f, "{}", names[idx].display(env.symbol_pool()))
+                        write!(f, "{}", names[idx].display(self.context.env.symbol_pool()))
                     } else {
                         write!(f, "#{}", idx)
                     }
                 } else {
                     write!(f, "#{}", idx)
                 }
-            }
+            },
             Var(idx) => write!(f, "?{}", idx),
             Error => f.write_str("*error*"),
         }
@@ -1270,25 +1310,17 @@ impl<'a> fmt::Display for TypeDisplay<'a> {
 
 impl<'a> TypeDisplay<'a> {
     fn struct_str(&self, mid: ModuleId, sid: StructId) -> String {
-        match self.context {
-            TypeDisplayContext::WithoutEnv {
-                symbol_pool,
-                reverse_struct_table,
-            } => {
-                if let Some(sym) = reverse_struct_table.get(&(mid, sid)) {
-                    sym.display(symbol_pool).to_string()
-                } else {
-                    "??unknown??".to_string()
-                }
-            }
-            TypeDisplayContext::WithEnv { env, .. } => {
-                let struct_env = env.get_module(mid).into_struct(sid);
-                format!(
-                    "{}::{}",
-                    struct_env.module_env.get_name().display(env.symbol_pool()),
-                    struct_env.get_name().display(env.symbol_pool())
-                )
-            }
+        let env = self.context.env;
+        if let Some(builder_table) = self.context.builder_struct_table {
+            let qsym = builder_table.get(&(mid, sid)).expect("type known");
+            qsym.display(self.context.env).to_string()
+        } else {
+            let struct_env = env.get_module(mid).into_struct(sid);
+            format!(
+                "{}::{}",
+                struct_env.module_env.get_name().display(env),
+                struct_env.get_name().display(env.symbol_pool())
+            )
         }
     }
 }

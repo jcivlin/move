@@ -95,8 +95,10 @@ impl<'env> FunctionDataBuilder<'env> {
 
     /// Add a return parameter.
     pub fn add_return(&mut self, ty: Type) -> usize {
-        let idx = self.data.return_types.len();
-        self.data.return_types.push(ty);
+        let mut types = self.data.result_type.clone().flatten();
+        let idx = types.len();
+        types.push(ty);
+        self.data.result_type = Type::tuple(types);
         idx
     }
 
@@ -141,6 +143,19 @@ impl<'env> FunctionDataBuilder<'env> {
         label
     }
 
+    /// Create a new bytecode attribute id with copied information from old one
+    pub fn new_attr_with_cloned_info(&mut self, attr: AttrId) -> AttrId {
+        let new_id = self.new_attr();
+        self.data.locations.insert(new_id, self.get_loc(attr));
+        if let Some(vc_info) = self.data.vc_infos.get(&attr).cloned() {
+            self.data.vc_infos.insert(new_id, vc_info);
+        }
+        if let Some(comment) = self.data.debug_comments.get(&attr).cloned() {
+            self.data.debug_comments.insert(new_id, comment);
+        }
+        new_id
+    }
+
     /// Emits a bytecode.
     pub fn emit(&mut self, bc: Bytecode) {
         use Bytecode::*;
@@ -152,10 +167,10 @@ impl<'env> FunctionDataBuilder<'env> {
                 if !no_fallthrough_jump_removal && label1 == label2 =>
             {
                 *self.data.code.last_mut().unwrap() = bc;
-            }
+            },
             _ => {
                 self.data.code.push(bc);
-            }
+            },
         }
     }
 

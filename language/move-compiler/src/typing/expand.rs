@@ -27,8 +27,18 @@ pub fn function_body_(context: &mut Context, b_: &mut T::FunctionBody_) {
 pub fn function_signature(context: &mut Context, sig: &mut FunctionSignature) {
     for (_, st) in &mut sig.parameters {
         type_(context, st);
+        core::check_non_fun(context, st)
     }
     type_(context, &mut sig.return_type);
+    core::check_non_fun(context, &sig.return_type)
+}
+
+pub fn inline_signature(context: &mut Context, sig: &mut FunctionSignature) {
+    for (_, st) in &mut sig.parameters {
+        type_(context, st);
+    }
+    type_(context, &mut sig.return_type);
+    core::check_non_fun(context, &sig.return_type)
 }
 
 //**************************************************************************************************
@@ -63,12 +73,12 @@ pub fn type_(context: &mut Context, ty: &mut Type) {
                         .env
                         .add_diag(diag!(TypeSafety::UninferredType, (ty.loc, msg)));
                     sp(loc, UnresolvedError)
-                }
+                },
                 t => t,
             };
             *ty = replacement;
             type_(context, ty);
-        }
+        },
         Apply(Some(_), sp!(_, TypeName_::Builtin(_)), tys) => types(context, tys),
         Apply(Some(_), _, _) => panic!("ICE expanding pre expanded type"),
         Apply(None, _, _) => {
@@ -77,10 +87,10 @@ pub fn type_(context: &mut Context, ty: &mut Type) {
                 Apply(abilities_opt, _, tys) => {
                     *abilities_opt = Some(abilities);
                     types(context, tys);
-                }
+                },
                 _ => panic!("ICE impossible. tapply switched to nontapply"),
             }
-        }
+        },
     }
 }
 
@@ -104,7 +114,7 @@ fn sequence_item(context: &mut Context, item: &mut T::SequenceItem) {
             lvalues(context, tbind);
             expected_types(context, tys);
             exp(context, te)
-        }
+        },
     }
 }
 
@@ -119,10 +129,10 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
                 mut t => {
                     // report errors if there is an uninferred type argument somewhere
                     type_(context, &mut t);
-                }
+                },
             }
             e.ty = sp(e.ty.loc, Type_::Anything)
-        }
+        },
         // Loop's default type is ()
         E::Loop {
             has_break: false, ..
@@ -133,10 +143,10 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
                 mut t => {
                     // report errors if there is an uninferred type argument somewhere
                     type_(context, &mut t);
-                }
+                },
             }
             e.ty = sp(e.ty.loc, Type_::Anything)
-        }
+        },
         _ => type_(context, &mut e.ty),
     }
     match &mut e.exp.value {
@@ -149,7 +159,7 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
             } else {
                 E::Move { from_user, var }
             }
-        }
+        },
         E::Value(sp!(vloc, Value_::InferredNum(v))) => {
             use BuiltinTypeName_ as BT;
             let bt = match e.ty.value.builtin_name() {
@@ -170,7 +180,7 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
                 BT::U64 => u64_max,
                 BT::U128 => u128_max,
                 BT::U256 => u256_max,
-                BT::Address | BT::Signer | BT::Vector | BT::Bool => unreachable!(),
+                BT::Address | BT::Signer | BT::Vector | BT::Bool | BT::Fun => unreachable!(),
             };
             let new_exp = if v > max {
                 let msg = format!(
@@ -210,14 +220,22 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
                     BT::U64 => Value_::U64(v.down_cast_lossy()),
                     BT::U128 => Value_::U128(v.down_cast_lossy()),
                     BT::U256 => Value_::U256(v),
-                    BT::Address | BT::Signer | BT::Vector | BT::Bool => unreachable!(),
+                    BT::Address | BT::Signer | BT::Vector | BT::Bool | BT::Fun => unreachable!(),
                 };
                 E::Value(sp(*vloc, value_))
             };
             e.exp.value = new_exp;
-        }
+        },
 
-        E::Spec(_, used_locals) => used_locals.values_mut().for_each(|ty| type_(context, ty)),
+        E::Spec(anchor) => {
+            anchor
+                .used_locals
+                .values_mut()
+                .for_each(|(ty, _)| type_(context, ty));
+            if !anchor.used_lambda_funs.is_empty() {
+                panic!("ICE spec anchor should not have lambda bindings in typing stage")
+            }
+        },
 
         E::Unit { .. }
         | E::Value(_)
@@ -230,31 +248,36 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
         | E::UnresolvedError => (),
 
         E::ModuleCall(call) => module_call(context, call),
+        E::VarCall(_, args) => exp(context, args),
         E::Builtin(b, args) => {
             builtin_function(context, b);
             exp(context, args);
-        }
+        },
         E::Vector(_vec_loc, _n, ty_arg, args) => {
             type_(context, ty_arg);
             exp(context, args);
-        }
+        },
 
         E::IfElse(eb, et, ef) => {
             exp(context, eb);
             exp(context, et);
             exp(context, ef);
-        }
+        },
         E::While(eb, eloop) => {
             exp(context, eb);
             exp(context, eloop);
-        }
+        },
         E::Loop { body: eloop, .. } => exp(context, eloop),
         E::Block(seq) => sequence(context, seq),
+        E::Lambda(args, body) => {
+            lvalues(context, args);
+            exp(context, body);
+        },
         E::Assign(assigns, tys, er) => {
             lvalues(context, assigns);
             expected_types(context, tys);
             exp(context, er);
-        }
+        },
 
         E::Return(er)
         | E::Abort(er)
@@ -265,12 +288,12 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
         E::Mutate(el, er) => {
             exp(context, el);
             exp(context, er)
-        }
+        },
         E::BinopExp(el, _, operand_ty, er) => {
             exp(context, el);
             exp(context, er);
             type_(context, operand_ty);
-        }
+        },
 
         E::Pack(_, _, bs, fields) => {
             types(context, bs);
@@ -278,12 +301,12 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
                 type_(context, bt);
                 exp(context, fe)
             }
-        }
+        },
         E::ExpList(el) => exp_list(context, el),
         E::Cast(el, rhs_ty) | E::Annotate(el, rhs_ty) => {
             exp(context, el);
             type_(context, rhs_ty);
-        }
+        },
     }
 }
 
@@ -299,14 +322,15 @@ fn lvalue(context: &mut Context, b: &mut T::LValue) {
         L::Ignore => (),
         L::Var(_, ty) => {
             type_(context, ty);
-        }
+            core::check_non_fun(context, ty.as_ref())
+        },
         L::BorrowUnpack(_, _, _, bts, fields) | L::Unpack(_, _, bts, fields) => {
             types(context, bts);
             for (_, _, (_, (bt, innerb))) in fields.iter_mut() {
                 type_(context, bt);
                 lvalue(context, innerb)
             }
-        }
+        },
     }
 }
 
@@ -325,7 +349,7 @@ fn builtin_function(context: &mut Context, b: &mut T::BuiltinFunction) {
         | B::Exists(bt)
         | B::Freeze(bt) => {
             type_(context, bt);
-        }
+        },
         B::Assert(_) => (),
     }
 }
@@ -342,10 +366,10 @@ fn exp_list_item(context: &mut Context, item: &mut T::ExpListItem) {
         I::Single(e, st) => {
             exp(context, e);
             type_(context, st);
-        }
+        },
         I::Splat(_, e, ss) => {
             exp(context, e);
             types(context, ss);
-        }
+        },
     }
 }

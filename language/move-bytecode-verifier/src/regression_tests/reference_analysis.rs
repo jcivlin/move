@@ -1,6 +1,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::VerifierConfig;
 use move_binary_format::{
     file_format::{
         empty_module, AbilitySet, AddressIdentifierIndex,
@@ -16,11 +17,8 @@ use move_binary_format::{
     CompiledModule,
 };
 use move_core_types::{
-    account_address::AccountAddress, identifier::Identifier, vm_status::StatusCode,
+    account_address::AccountAddress, ident_str, identifier::Identifier, vm_status::StatusCode,
 };
-use std::str::FromStr;
-
-use crate::VerifierConfig;
 
 #[test]
 fn unbalanced_stack_crash() {
@@ -55,11 +53,11 @@ fn unbalanced_stack_crash() {
 
     module.identifiers.extend(
         vec![
-            Identifier::from_str("zf_hello_world").unwrap(),
-            Identifier::from_str("awldFnU18mlDKQfh6qNfBGx8X").unwrap(),
-            Identifier::from_str("aQPwJNHyAHpvJ").unwrap(),
-            Identifier::from_str("aT7ZphKTrKcYCwCebJySrmrKlckmnL5").unwrap(),
-            Identifier::from_str("arYpsFa2fvrpPJ").unwrap(),
+            ident_str!("zf_hello_world").into(),
+            ident_str!("awldFnU18mlDKQfh6qNfBGx8X").into(),
+            ident_str!("aQPwJNHyAHpvJ").into(),
+            ident_str!("aT7ZphKTrKcYCwCebJySrmrKlckmnL5").into(),
+            ident_str!("arYpsFa2fvrpPJ").into(),
         ]
         .into_iter(),
     );
@@ -107,7 +105,7 @@ fn unbalanced_stack_crash() {
 
     module.function_defs.push(fun_def);
     match crate::verify_module(&module) {
-        Ok(_) => {}
+        Ok(_) => {},
         Err(e) => assert_eq!(e.major_status(), StatusCode::GLOBAL_REFERENCE_ERROR),
     }
 }
@@ -163,7 +161,7 @@ fn too_many_locals() {
     let res = crate::verify_module(&module);
 
     match res {
-        Ok(_) => {}
+        Ok(_) => {},
         Err(e) => assert_eq!(e.major_status(), StatusCode::TOO_MANY_LOCALS),
     }
 }

@@ -2,20 +2,6 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use codespan_reporting::diagnostic::Severity;
-use std::collections::BTreeMap;
-
-use itertools::Itertools;
-use regex::Regex;
-use sha3::{Digest, Keccak256};
-
-use move_model::{
-    ast::TempIndex,
-    emit, emitln,
-    model::{FunId, FunctionEnv, QualifiedId, QualifiedInstId, StructId},
-    ty::{PrimitiveType, Type},
-};
-
 use crate::{
     attributes,
     context::Context,
@@ -27,6 +13,17 @@ use crate::{
     yul_functions::{substitute_placeholders, YulFunction},
     Generator,
 };
+use codespan_reporting::diagnostic::Severity;
+use itertools::Itertools;
+use move_model::{
+    ast::TempIndex,
+    emit, emitln,
+    model::{FunId, FunctionEnv, QualifiedId, QualifiedInstId, StructId},
+    ty::{PrimitiveType, Type},
+};
+use regex::Regex;
+use sha3::{Digest, Keccak256};
+use std::collections::BTreeMap;
 
 // Revert reasons
 pub const REVERT_ERR_NON_PAYABLE_FUN: usize = 99;
@@ -207,8 +204,11 @@ impl Generator {
             // Call the function
             emitln!(ctx.writer, "{}{}({})", let_rets, function_name, params);
             // Encoding the return values
-            let encoding_fun_name =
-                self.generate_abi_tuple_encoding_ret(ctx, solidity_sig, fun.get_return_types());
+            let encoding_fun_name = self.generate_abi_tuple_encoding_ret(
+                ctx,
+                solidity_sig,
+                fun.get_result_type().flatten(),
+            );
             if ret_count > 0 {
                 rets = format!(", {}", rets);
             }
@@ -253,7 +253,7 @@ impl Generator {
         }
         if !attributes::is_create_fun(fun) || self.storage_type.is_none() {
             // If this is not a creator which returns a storage value, add return types.
-            types.extend(fun.get_return_types().into_iter())
+            types.extend(fun.get_result_type().flatten().into_iter())
         }
         types.into_iter().all(|ty| !ty.is_reference())
     }
@@ -268,7 +268,7 @@ impl Generator {
             }
             let mut param_count = receive.get_parameter_count();
             let storage_type = if param_count > 0
-                && ctx.is_storage_ref(&self.storage_type, &receive.get_local_type(0))
+                && ctx.is_storage_ref(&self.storage_type, &receive.get_local_type(0).unwrap())
             {
                 param_count -= 1;
                 Some(self.storage_type.clone().unwrap())
@@ -321,7 +321,7 @@ impl Generator {
             let fun_name = ctx.make_function_name(fun_id);
             let mut param_count = fallback.get_parameter_count();
             let storage_type = if param_count > 0
-                && ctx.is_storage_ref(&self.storage_type, &fallback.get_local_type(0))
+                && ctx.is_storage_ref(&self.storage_type, &fallback.get_local_type(0).unwrap())
             {
                 param_count -= 1;
                 Some(self.storage_type.clone().unwrap())
@@ -720,7 +720,7 @@ impl Generator {
             Primitive(_) => self.generate_abi_decoding_primitive_type(ty, from_memory),
             DynamicArray(_) | StaticArray(_, _) | Bytes | BytesStatic(_) | SolidityString => {
                 self.generate_abi_decoding_array_type(ctx, ty, move_ty, from_memory)
-            }
+            },
             Struct(_, _) => self.generate_abi_decoding_struct_type(ctx, ty, move_ty, from_memory),
             _ => "".to_string(),
         }
@@ -806,7 +806,7 @@ impl Generator {
                     } else {
                         panic!("wrong type")
                     }
-                }
+                },
                 _ => panic!("wrong type"),
             };
             let mut offset = "add(offset, 0x20)";
@@ -1110,7 +1110,7 @@ impl Generator {
             Primitive(_) => self.generate_abi_encoding_primitive_type(ty, options),
             DynamicArray(_) | StaticArray(_, _) | Bytes | BytesStatic(_) | SolidityString => {
                 self.generate_abi_encoding_array_type(ctx, ty, move_ty, options)
-            }
+            },
             Struct(_, _) => self.generate_abi_encoding_struct_type(ctx, ty, move_ty, options),
             _ => "NYI".to_string(),
         }
@@ -1133,10 +1133,10 @@ impl Generator {
             Primitive(_) => self.generate_abi_encoding_primitive_type(&ty, options.clone()),
             DynamicArray(_) | StaticArray(_, _) | Bytes | BytesStatic(_) | SolidityString => {
                 self.generate_abi_encoding_array_type(ctx, &ty, &move_ty, options.clone())
-            }
+            },
             Struct(_, _) => {
                 self.generate_abi_encoding_struct_type(ctx, &ty, &move_ty, options.clone())
-            }
+            },
             _ => "NYI".to_string(),
         };
         let function_name = format!("{}_with_updated_pos", encoding_function_name);
@@ -1269,7 +1269,7 @@ impl Generator {
                 DynamicArray(ref _inner_ty) => (_inner_ty.is_static(), _inner_ty.clone(), 0),
                 StaticArray(ref _inner_ty, _set_size) => {
                     (_inner_ty.is_static(), _inner_ty.clone(), _set_size)
-                }
+                },
                 _ => panic!("wrong type"),
             };
             let inner_move_ty = match move_ty {

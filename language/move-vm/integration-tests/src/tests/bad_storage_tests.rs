@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::compiler::{as_module, as_script, compile_units};
-use move_binary_format::errors::{Location, PartialVMError, VMError};
+use move_binary_format::errors::{Location, PartialVMError};
 use move_core_types::{
     account_address::AccountAddress,
     effects::{ChangeSet, Op},
     identifier::Identifier,
     language_storage::{ModuleId, StructTag},
+    metadata::Metadata,
     resolver::{ModuleResolver, ResourceResolver},
     value::{serialize_values, MoveValue},
     vm_status::{StatusCode, StatusType},
@@ -105,7 +106,7 @@ fn test_malformed_resource() {
     let (changeset, _) = sess.finish().unwrap();
     storage.apply(changeset).unwrap();
 
-    // Execut the second script and make sure it succeeds. This script simply checks
+    // Execute the second script and make sure it succeeds. This script simply checks
     // that the published resource is what we expect it to be. This inital run is to ensure
     // the testing environment is indeed free of errors without external interference.
     let mut script_blob = vec![];
@@ -194,10 +195,10 @@ fn test_malformed_module() {
     // Try to call M::foo again and the module should fail to load, causing an
     // invariant violation error.
     {
-        blob[0] = 0xde;
-        blob[1] = 0xad;
-        blob[2] = 0xbe;
-        blob[3] = 0xef;
+        blob[0] = 0xDE;
+        blob[1] = 0xAD;
+        blob[2] = 0xBE;
+        blob[3] = 0xEF;
         let mut storage = InMemoryStorage::new();
         storage.publish_or_overwrite_module(m.self_id(), blob);
         let vm = MoveVM::new(vec![]).unwrap();
@@ -399,10 +400,10 @@ fn test_malformed_module_dependency() {
 
     // Publish N and a corrupted version of M and try to call N::bar, the VM should fail to load M.
     {
-        blob_m[0] = 0xde;
-        blob_m[1] = 0xad;
-        blob_m[2] = 0xbe;
-        blob_m[3] = 0xef;
+        blob_m[0] = 0xDE;
+        blob_m[1] = 0xAD;
+        blob_m[2] = 0xBE;
+        blob_m[3] = 0xEF;
 
         let mut storage = InMemoryStorage::new();
 
@@ -508,22 +509,27 @@ struct BogusStorage {
 }
 
 impl ModuleResolver for BogusStorage {
-    type Error = VMError;
+    fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+        vec![]
+    }
 
-    fn get_module(&self, _module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
-        Err(PartialVMError::new(self.bad_status_code).finish(Location::Undefined))
+    fn get_module(&self, _module_id: &ModuleId) -> Result<Option<Vec<u8>>, anyhow::Error> {
+        Ok(Err(
+            PartialVMError::new(self.bad_status_code).finish(Location::Undefined)
+        )?)
     }
 }
 
 impl ResourceResolver for BogusStorage {
-    type Error = VMError;
-
-    fn get_resource(
+    fn get_resource_with_metadata(
         &self,
         _address: &AccountAddress,
         _tag: &StructTag,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        Err(PartialVMError::new(self.bad_status_code).finish(Location::Undefined))
+        _metadata: &[Metadata],
+    ) -> anyhow::Result<(Option<Vec<u8>>, usize)> {
+        Ok(Err(
+            PartialVMError::new(self.bad_status_code).finish(Location::Undefined)
+        )?)
     }
 }
 

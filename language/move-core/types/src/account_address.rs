@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use hex::FromHex;
+use num::BigUint;
 use rand::{rngs::OsRng, Rng};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use std::{convert::TryFrom, fmt, str::FromStr};
@@ -14,28 +15,19 @@ use std::{convert::TryFrom, fmt, str::FromStr};
 pub struct AccountAddress([u8; AccountAddress::LENGTH]);
 
 impl AccountAddress {
-    pub const fn new(address: [u8; Self::LENGTH]) -> Self {
-        Self(address)
-    }
-
     /// The number of bytes in an address.
     /// Default to 16 bytes, can be set to 20 bytes with address20 feature.
-    pub const LENGTH: usize = if cfg!(feature = "address20") {
-        20
-    } else if cfg!(feature = "address32") {
-        32
-    } else {
-        16
-    };
-
+    pub const LENGTH: usize = 32;
+    /// Hex address: 0x1
+    pub const ONE: Self = Self::get_hex_address_one();
+    /// Hex address: 0x2
+    pub const TWO: Self = Self::get_hex_address_two();
     /// Hex address: 0x0
     pub const ZERO: Self = Self([0u8; Self::LENGTH]);
 
-    /// Hex address: 0x1
-    pub const ONE: Self = Self::get_hex_address_one();
-
-    /// Hex address: 0x2
-    pub const TWO: Self = Self::get_hex_address_two();
+    pub const fn new(address: [u8; Self::LENGTH]) -> Self {
+        Self(address)
+    }
 
     const fn get_hex_address_one() -> Self {
         let mut addr = [0u8; AccountAddress::LENGTH];
@@ -71,6 +63,10 @@ impl AccountAddress {
         } else {
             hex_str
         }
+    }
+
+    pub fn to_big_uint(self) -> BigUint {
+        BigUint::from_bytes_be(&self.into_bytes())
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
@@ -314,8 +310,8 @@ mod tests {
 
     #[test]
     fn test_display_impls() {
-        let hex = "ca843279e3427144cead5e4d5999a3d0";
-        let upper_hex = "CA843279E3427144CEAD5E4D5999A3D0";
+        let hex = "ca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0";
+        let upper_hex = "CA843279E3427144CEAD5E4D5999A3D0CA843279E3427144CEAD5E4D5999A3D0";
 
         let address = AccountAddress::from_hex(hex).unwrap();
 
@@ -330,7 +326,10 @@ mod tests {
 
     #[test]
     fn test_short_str_lossless() {
-        let address = AccountAddress::from_hex("00c0f1f95c5b1c5f0eda533eff269000").unwrap();
+        let address = AccountAddress::from_hex(
+            "0000000000000000000000000000000000c0f1f95c5b1c5f0eda533eff269000",
+        )
+        .unwrap();
 
         assert_eq!(
             address.short_str_lossless(),
@@ -340,14 +339,17 @@ mod tests {
 
     #[test]
     fn test_short_str_lossless_zero() {
-        let address = AccountAddress::from_hex("00000000000000000000000000000000").unwrap();
+        let address = AccountAddress::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
 
         assert_eq!(address.short_str_lossless(), "0");
     }
 
     #[test]
     fn test_address() {
-        let hex = "ca843279e3427144cead5e4d5999a3d0";
+        let hex = "ca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0";
         let bytes = Vec::from_hex(hex).expect("You must provide a valid Hex format");
 
         assert_eq!(
@@ -367,7 +369,7 @@ mod tests {
     #[test]
     fn test_from_hex_literal() {
         let hex_literal = "0x1";
-        let hex = "00000000000000000000000000000001";
+        let hex = "0000000000000000000000000000000000000000000000000000000000000001";
 
         let address_from_literal = AccountAddress::from_hex_literal(hex_literal).unwrap();
         let address = AccountAddress::from_hex(hex).unwrap();
@@ -378,7 +380,10 @@ mod tests {
         // Missing '0x'
         AccountAddress::from_hex_literal(hex).unwrap_err();
         // Too long
-        AccountAddress::from_hex_literal("0x100000000000000000000000000000001").unwrap_err();
+        AccountAddress::from_hex_literal(
+            "0x10000000000000000000000000000001100000000000000000000000000000001",
+        )
+        .unwrap_err();
     }
 
     #[test]
@@ -404,8 +409,8 @@ mod tests {
 
     #[test]
     fn test_serde_json() {
-        let hex = "ca843279e3427144cead5e4d5999a3d0";
-        let json_hex = "\"ca843279e3427144cead5e4d5999a3d0\"";
+        let hex = "ca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0";
+        let json_hex = "\"ca843279e3427144cead5e4d5999a3d0ca843279e3427144cead5e4d5999a3d0\"";
 
         let address = AccountAddress::from_hex(hex).unwrap();
 
@@ -431,6 +436,7 @@ mod tests {
         }
 
         #[test]
+        #[allow(clippy::redundant_clone)] // Required to work around prop_assert_eq! limitations
         fn test_address_protobuf_roundtrip(addr in any::<AccountAddress>()) {
             let bytes = addr.to_vec();
             prop_assert_eq!(bytes.clone(), addr.as_ref());

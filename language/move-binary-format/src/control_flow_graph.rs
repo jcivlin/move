@@ -4,10 +4,11 @@
 
 //! This module defines the control-flow graph uses for bytecode verification.
 use crate::file_format::{Bytecode, CodeOffset};
-use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use indexmap::{map::Entry, IndexMap};
+use std::collections::BTreeSet;
 
 // BTree/Hash agnostic type wrappers
-type Map<K, V> = BTreeMap<K, V>;
+type Map<K, V> = IndexMap<K, V>;
 type Set<V> = BTreeSet<V>;
 
 pub type BlockId = CodeOffset;
@@ -176,15 +177,15 @@ impl VMControlFlowGraph {
                             // block as the loop head.
                             Some(Exploration::InProgress) => {
                                 loop_heads.entry(*succ).or_default().insert(block);
-                            }
+                            },
 
                             // Cross-edge detected, this block and its entire sub-graph (modulo
                             // cycles) has already been explored via a different path, and is
                             // already present in `post_order`.
-                            Some(Exploration::Done) => { /* skip */ }
+                            Some(Exploration::Done) => { /* skip */ },
                         };
                     }
-                }
+                },
 
                 Entry::Occupied(mut entry) => match entry.get() {
                     // Already traversed the sub-graph reachable from this block, so skip it.
@@ -195,7 +196,7 @@ impl VMControlFlowGraph {
                     Exploration::InProgress => {
                         post_order.push(block);
                         entry.insert(Exploration::Done);
-                    }
+                    },
                 },
             }
         }
@@ -275,6 +276,15 @@ impl VMControlFlowGraph {
 
     pub fn reachable_from(&self, block_id: BlockId) -> Vec<BlockId> {
         self.traverse_by(block_id)
+    }
+
+    pub fn traversal_index(&self, block_id: u16) -> usize {
+        let index = self
+            .traversal_successors
+            .get_index_of(&block_id)
+            .unwrap_or_else(|| self.traversal_successors.len());
+        debug_assert!(index <= self.traversal_successors.len());
+        index
     }
 }
 

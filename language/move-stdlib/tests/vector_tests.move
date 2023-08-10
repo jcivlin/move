@@ -505,38 +505,49 @@ module std::vector_tests {
     }
 
     #[test]
-    fun test_insert() {
-        let v = vector[7];
-        V::insert(&mut v, 6, 0);
-        assert!(v == vector[6, 7], 0);
-
-        let v = vector[7, 9];
-        V::insert(&mut v, 8, 1);
-        assert!(v == vector[7, 8, 9], 0);
-
-        let v = vector[6, 7];
-        V::insert(&mut v, 5, 0);
-        assert!(v == vector[5, 6, 7], 0);
-
-        let v = vector[5, 6, 8];
-        V::insert(&mut v, 7, 2);
-        assert!(v == vector[5, 6, 7, 8], 0);
+    fun test_for_each() {
+        let v = vector[1, 2, 3];
+        let s = 0;
+        V::for_each(v, |e| {
+            s = s + e;
+        });
+        assert!(s == 6, 0)
     }
 
     #[test]
-    fun insert_at_end() {
-        let v = vector[];
-        V::insert(&mut v, 6, 0);
-        assert!(v == vector[6], 0);
-
-        V::insert(&mut v, 7, 1);
-        assert!(v == vector[6, 7], 0);
+    fun test_for_each_ref() {
+        let v = vector[1, 2, 3];
+        let s = 0;
+        V::for_each_ref(&v, |e| s = s + *e);
+        assert!(s == 6, 0)
     }
 
     #[test]
-    #[expected_failure(abort_code = V::EINDEX_OUT_OF_BOUNDS)]
-    fun insert_out_of_range() {
-        let v = vector[7];
-        V::insert(&mut v, 6, 2);
+    fun test_for_each_mut() {
+        let v = vector[1, 2, 3];
+        let s = 2;
+        V::for_each_mut(&mut v, |e| { *e = s; s = s + 1 });
+        assert!(v == vector[2, 3, 4], 0)
+    }
+
+    #[test]
+    fun test_fold() {
+        let v = vector[1, 2, 3];
+        let s = V::fold(v, 0, |r, e| r + e);
+        assert!(s == 6 , 0)
+    }
+
+    #[test]
+    fun test_map() {
+        let v = vector[1, 2, 3];
+        let s = V::map(v, |x| x + 1);
+        assert!(s == vector[2, 3, 4] , 0)
+    }
+
+    #[test]
+    fun test_filter() {
+        let v = vector[1, 2, 3];
+        let s = V::filter(v, |x| *x % 2 == 0);
+        assert!(s == vector[2] , 0)
     }
 }

@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    expansion::ast::{Attributes, Fields, Friend, ModuleIdent, SpecId, Value, Visibility},
+    expansion::ast::{
+        Attributes, Fields, Friend, ModuleIdent, ModuleIdent_, SpecId, Value, Visibility,
+    },
     naming::ast::{FunctionSignature, StructDefinition, Type, TypeName_, Type_},
     parser::ast::{
         BinOp, ConstantName, Field, FunctionName, StructName, UnaryOp, Var, ENTRY_MODIFIER,
@@ -73,6 +75,7 @@ pub type FunctionBody = Spanned<FunctionBody_>;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Function {
+    pub inline: bool,
     pub attributes: Attributes,
     pub visibility: Visibility,
     pub entry: Option<Loc>,
@@ -119,6 +122,7 @@ pub type LValueList = Spanned<LValueList_>;
 pub struct ModuleCall {
     pub module: ModuleIdent,
     pub name: FunctionName,
+    pub is_macro: bool,
     pub type_arguments: Vec<Type>,
     pub arguments: Box<Exp>,
     pub parameter_types: Vec<Type>,
@@ -137,6 +141,29 @@ pub enum BuiltinFunction_ {
 }
 pub type BuiltinFunction = Spanned<BuiltinFunction_>;
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct SpecIdent {
+    pub module: Option<ModuleIdent_>,
+    pub function: Symbol,
+    pub id: SpecId,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct SpecAnchor {
+    pub id: SpecId,
+    pub origin: Option<SpecIdent>,
+    pub used_locals: BTreeMap<Var, (Type, Var)>,
+    pub used_lambda_funs: BTreeMap<Symbol, SpecLambdaLiftedFunction>,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct SpecLambdaLiftedFunction {
+    pub name: Symbol,
+    pub signature: FunctionSignature,
+    pub body: Box<Exp>,
+    pub preset_args: Vec<Var>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum UnannotatedExp_ {
     Unit { trailing: bool },
@@ -147,6 +174,7 @@ pub enum UnannotatedExp_ {
     Constant(Option<ModuleIdent>, ConstantName),
 
     ModuleCall(Box<ModuleCall>),
+    VarCall(Var, Box<Exp>),
     Builtin(Box<BuiltinFunction>, Box<Exp>),
     Vector(Loc, usize, Box<Type>, Box<Exp>),
 
@@ -154,6 +182,7 @@ pub enum UnannotatedExp_ {
     While(Box<Exp>, Box<Exp>),
     Loop { has_break: bool, body: Box<Exp> },
     Block(Sequence),
+    Lambda(LValueList, Box<Exp>),
     Assign(LValueList, Vec<Option<Type>>, Box<Exp>),
     Mutate(Box<Exp>, Box<Exp>),
     Return(Box<Exp>),
@@ -175,7 +204,7 @@ pub enum UnannotatedExp_ {
     Cast(Box<Exp>, Box<Type>),
     Annotate(Box<Exp>, Box<Type>),
 
-    Spec(SpecId, BTreeMap<Var, Type>),
+    Spec(SpecAnchor),
 
     UnresolvedError,
 }
@@ -245,6 +274,19 @@ impl BuiltinFunction_ {
 impl fmt::Display for BuiltinFunction_ {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.display_name())
+    }
+}
+
+impl fmt::Display for SpecIdent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}::{}::#{}",
+            self.module
+                .map_or_else(|| "<script>".to_string(), |mid| mid.to_string()),
+            self.function,
+            self.id
+        )
     }
 }
 
@@ -338,6 +380,7 @@ impl AstDebug for (FunctionName, &Function) {
         let (
             name,
             Function {
+                inline,
                 attributes,
                 visibility,
                 entry,
@@ -355,6 +398,9 @@ impl AstDebug for (FunctionName, &Function) {
             w.write("native ");
         }
         w.write(&format!("fun {}", name));
+        if *inline {
+            w.write("!");
+        }
         signature.ast_debug(w);
         if !acquires.is_empty() {
             w.write(" acquires ");
@@ -402,7 +448,7 @@ impl AstDebug for SequenceItem_ {
             I::Declare(sp!(_, bs)) => {
                 w.write("let ");
                 bs.ast_debug(w);
-            }
+            },
             I::Bind(sp!(_, bs), expected_types, e) => {
                 w.write("let ");
                 bs.ast_debug(w);
@@ -411,7 +457,7 @@ impl AstDebug for SequenceItem_ {
                 w.write(")");
                 w.write(" = ");
                 e.ast_debug(w);
-            }
+            },
         }
     }
 }
@@ -446,13 +492,19 @@ impl AstDebug for UnannotatedExp_ {
             E::Constant(Some(m), c) => w.write(&format!("{}::{}", m, c)),
             E::ModuleCall(mcall) => {
                 mcall.ast_debug(w);
-            }
+            },
+            E::VarCall(var, rhs) => {
+                w.write(&format!("{}", var));
+                w.write("(");
+                rhs.ast_debug(w);
+                w.write(")");
+            },
             E::Builtin(bf, rhs) => {
                 bf.ast_debug(w);
                 w.write("(");
                 rhs.ast_debug(w);
                 w.write(")");
-            }
+            },
             E::Vector(_loc, usize, ty, elems) => {
                 w.write(format!("vector#{}", usize));
                 w.write("<");
@@ -461,7 +513,7 @@ impl AstDebug for UnannotatedExp_ {
                 w.write("[");
                 elems.ast_debug(w);
                 w.write("]");
-            }
+            },
             E::Pack(m, s, tys, fields) => {
                 w.write(&format!("{}::{}", m, s));
                 w.write("<");
@@ -476,7 +528,7 @@ impl AstDebug for UnannotatedExp_ {
                     e.ast_debug(w);
                 });
                 w.write("}");
-            }
+            },
             E::IfElse(b, t, f) => {
                 w.write("if (");
                 b.ast_debug(w);
@@ -484,13 +536,13 @@ impl AstDebug for UnannotatedExp_ {
                 t.ast_debug(w);
                 w.write(" else ");
                 f.ast_debug(w);
-            }
+            },
             E::While(b, e) => {
                 w.write("while (");
                 b.ast_debug(w);
                 w.write(")");
                 e.ast_debug(w);
-            }
+            },
             E::Loop { has_break, body } => {
                 w.write("loop");
                 if *has_break {
@@ -498,13 +550,19 @@ impl AstDebug for UnannotatedExp_ {
                 }
                 w.write(" ");
                 body.ast_debug(w);
-            }
+            },
             E::Block(seq) => w.block(|w| seq.ast_debug(w)),
+            E::Lambda(sp!(_, bs), e) => {
+                w.write("|");
+                bs.ast_debug(w);
+                w.write("|");
+                e.ast_debug(w);
+            },
             E::ExpList(es) => {
                 w.write("(");
                 w.comma(es, |w, e| e.ast_debug(w));
                 w.write(")");
-            }
+            },
 
             E::Assign(sp!(_, lvalues), expected_types, rhs) => {
                 lvalues.ast_debug(w);
@@ -512,34 +570,34 @@ impl AstDebug for UnannotatedExp_ {
                 expected_types.ast_debug(w);
                 w.write(") = ");
                 rhs.ast_debug(w);
-            }
+            },
 
             E::Mutate(lhs, rhs) => {
                 w.write("*");
                 lhs.ast_debug(w);
                 w.write(" = ");
                 rhs.ast_debug(w);
-            }
+            },
 
             E::Return(e) => {
                 w.write("return ");
                 e.ast_debug(w);
-            }
+            },
             E::Abort(e) => {
                 w.write("abort ");
                 e.ast_debug(w);
-            }
+            },
             E::Break => w.write("break"),
             E::Continue => w.write("continue"),
             E::Dereference(e) => {
                 w.write("*");
                 e.ast_debug(w)
-            }
+            },
             E::UnaryExp(op, e) => {
                 op.ast_debug(w);
                 w.write(" ");
                 e.ast_debug(w);
-            }
+            },
             E::BinopExp(l, op, ty, r) => {
                 l.ast_debug(w);
                 w.write(" ");
@@ -548,7 +606,7 @@ impl AstDebug for UnannotatedExp_ {
                 ty.ast_debug(w);
                 w.write(" ");
                 r.ast_debug(w)
-            }
+            },
             E::Borrow(mut_, e, f) => {
                 w.write("&");
                 if *mut_ {
@@ -556,45 +614,70 @@ impl AstDebug for UnannotatedExp_ {
                 }
                 e.ast_debug(w);
                 w.write(&format!(".{}", f));
-            }
+            },
             E::TempBorrow(mut_, e) => {
                 w.write("&");
                 if *mut_ {
                     w.write("mut ");
                 }
                 e.ast_debug(w);
-            }
+            },
             E::BorrowLocal(mut_, v) => {
                 w.write("&");
                 if *mut_ {
                     w.write("mut ");
                 }
                 w.write(&format!("{}", v));
-            }
+            },
             E::Cast(e, ty) => {
                 w.write("(");
                 e.ast_debug(w);
                 w.write(" as ");
                 ty.ast_debug(w);
                 w.write(")");
-            }
+            },
             E::Annotate(e, ty) => {
                 w.write("annot(");
                 e.ast_debug(w);
                 w.write(": ");
                 ty.ast_debug(w);
                 w.write(")");
-            }
-            E::Spec(u, used_locals) => {
-                w.write(&format!("spec #{}", u));
+            },
+            E::Spec(anchor) => {
+                let SpecAnchor {
+                    id,
+                    origin,
+                    used_locals,
+                    used_lambda_funs,
+                } = anchor;
+
+                w.write(&format!("spec #{}", id));
+                match origin {
+                    None => (),
+                    Some(o) => {
+                        w.write(&format!(" from {}", o));
+                    },
+                }
                 if !used_locals.is_empty() {
-                    w.write("uses [");
-                    w.comma(used_locals, |w, (n, ty)| {
-                        w.annotate(|w| w.write(&format!("{}", n)), ty)
+                    w.write(" uses [");
+                    w.comma(used_locals, |w, (n, (ty, m))| {
+                        w.annotate(|w| w.write(&format!("{} ({})", n, m)), ty)
                     });
                     w.write("]");
                 }
-            }
+                if !used_lambda_funs.is_empty() {
+                    w.write(" applies [");
+                    w.comma(used_lambda_funs.keys(), |w, n| w.write(n));
+                    w.writeln("]");
+                    for (n, fdef) in used_lambda_funs {
+                        w.write(&format!("lambda {} -> {}: ", n, fdef.name));
+                        fdef.signature.ast_debug(w);
+                        w.write(" {");
+                        w.indent(4, |w| fdef.body.ast_debug(w));
+                        w.writeln("}")
+                    }
+                }
+            },
             E::UnresolvedError => w.write("_|_"),
         }
     }
@@ -612,12 +695,16 @@ impl AstDebug for ModuleCall {
         let ModuleCall {
             module,
             name,
+            is_macro,
             type_arguments,
             parameter_types,
             acquires,
             arguments,
         } = self;
         w.write(&format!("{}::{}", module, name));
+        if *is_macro {
+            w.write("!");
+        }
         if !acquires.is_empty() || !parameter_types.is_empty() {
             w.write("[");
             if !acquires.is_empty() {
@@ -672,7 +759,7 @@ impl AstDebug for ExpListItem {
             ExpListItem::Splat(_, e, ss) => {
                 w.write("~");
                 w.annotate(|w| e.ast_debug(w), ss)
-            }
+            },
         }
     }
 }
@@ -718,7 +805,7 @@ impl AstDebug for LValue_ {
                     a.ast_debug(w);
                 });
                 w.write("}");
-            }
+            },
             L::BorrowUnpack(mut_, m, s, tys, fields) => {
                 w.write("&");
                 if *mut_ {
@@ -736,7 +823,7 @@ impl AstDebug for LValue_ {
                     a.ast_debug(w);
                 });
                 w.write("}");
-            }
+            },
         }
     }
 }

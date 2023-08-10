@@ -5,14 +5,10 @@
 //! This module supports translations of specifications as found in the move-model to
 //! expressions which can be used in assumes/asserts in bytecode.
 
-use codespan_reporting::diagnostic::Severity;
-use itertools::Itertools;
-use std::collections::{BTreeMap, BTreeSet};
-
 use crate::{
     ast::{
-        Condition, ConditionKind, Exp, ExpData, GlobalInvariant, LocalVarDecl, MemoryLabel,
-        Operation, Spec, TempIndex, TraceKind,
+        Condition, ConditionKind, Exp, ExpData, GlobalInvariant, MemoryLabel, Operation, Spec,
+        TempIndex, TraceKind,
     },
     exp_generator::ExpGenerator,
     exp_rewriter::ExpRewriterFunctions,
@@ -24,6 +20,9 @@ use crate::{
     symbol::Symbol,
     ty::{PrimitiveType, Type},
 };
+use codespan_reporting::diagnostic::Severity;
+use itertools::Itertools;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A helper which reduces specification conditions to assume/assert statements.
 pub struct SpecTranslator<'a, 'b, T: ExpGenerator<'a>> {
@@ -283,20 +282,17 @@ impl<'a, 'b, T: ExpGenerator<'a>> SpecTranslator<'a, 'b, T> {
         };
 
         // Handle updating of global spec variables
-        for impl_spec in translator.fun_env.get_spec().on_impl.values() {
-            for cond in &impl_spec.conditions {
-                if cond.exp == prop.clone() && !cond.additional_exps.is_empty() {
-                    translator.in_post_state = false;
-                    let lhs = translator.translate_exp(
-                        &translator.auto_trace(&cond.loc, &cond.additional_exps[0]),
-                        false,
-                    );
-                    let rhs = translator
-                        .translate_exp(&translator.auto_trace(&cond.loc, &cond.exp), false);
-                    translator.result.updates.push((cond.loc.clone(), lhs, rhs));
-                    return (translator.result, cond.clone().exp);
-                }
-            }
+        let binding = translator.fun_env.get_spec();
+        let cond_opt = binding.update_map.get(&prop.node_id());
+        if let Some(cond) = cond_opt {
+            translator.in_post_state = false;
+            let lhs = translator.translate_exp(
+                &translator.auto_trace(&cond.loc, &cond.additional_exps[0]),
+                false,
+            );
+            let rhs = translator.translate_exp(&translator.auto_trace(&cond.loc, &cond.exp), false);
+            translator.result.updates.push((cond.loc.clone(), lhs, rhs));
+            return (translator.result, cond.clone().exp);
         }
 
         let exp = translator.translate_exp(&translator.auto_trace(loc, prop), false);
@@ -348,7 +344,7 @@ impl<'a, 'b, T: ExpGenerator<'a>> SpecTranslator<'a, 'b, T> {
         };
 
         // First process `let` so subsequently expressions can refer to them.
-        self.translate_lets(false, spec);
+        self.translate_lets(false, &spec);
 
         // Next process requires
         for cond in spec
@@ -439,7 +435,7 @@ impl<'a, 'b, T: ExpGenerator<'a>> SpecTranslator<'a, 'b, T> {
         }
 
         // Now translate `let update` which are evaluated in post state.
-        self.translate_lets(true, spec);
+        self.translate_lets(true, &spec);
 
         // Translate ensures.
         for cond in spec
@@ -511,20 +507,16 @@ impl<'a, 'b, T: ExpGenerator<'a>> SpecTranslator<'a, 'b, T> {
                 ExpData::LocalVar(_, sym) => (self.let_locals.contains_key(sym), e),
                 ExpData::Call(id, Operation::Global(None), args) => (
                     true,
-                    ExpData::Call(
-                        *id,
-                        Operation::Global(None),
-                        vec![self.auto_trace_sub(&args[0])],
-                    )
+                    ExpData::Call(*id, Operation::Global(None), vec![
+                        self.auto_trace_sub(&args[0])
+                    ])
                     .into_exp(),
                 ),
                 ExpData::Call(id, Operation::Exists(None), args) => (
                     true,
-                    ExpData::Call(
-                        *id,
-                        Operation::Exists(None),
-                        vec![self.auto_trace_sub(&args[0])],
-                    )
+                    ExpData::Call(*id, Operation::Exists(None), vec![
+                        self.auto_trace_sub(&args[0])
+                    ])
                     .into_exp(),
                 ),
                 _ => (false, e),
@@ -633,7 +625,7 @@ impl<'a, 'b, T: ExpGenerator<'a>> ExpRewriterFunctions for SpecTranslator<'a, 'b
                         labels,
                     )
                 }
-            }
+            },
             ExpData::Call(id, Operation::Trace(TraceKind::User), args) => {
                 // Generate an error if a TRACE is applied to an expression where it is not
                 // allowed, i.e. if there are free LocalVar terms, excluding locals from lets.
@@ -649,8 +641,8 @@ impl<'a, 'b, T: ExpGenerator<'a>> ExpRewriterFunctions for SpecTranslator<'a, 'b
                              on quantified variables or spec function parameters",
                     )
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
         if is_old {
             self.in_old = true;
@@ -735,12 +727,12 @@ impl<'a, 'b, T: ExpGenerator<'a>> ExpRewriterFunctions for SpecTranslator<'a, 'b
                     labels.push(self.save_memory(mem));
                 }
                 Some(Call(id, Function(*mid, *fid, Some(labels)), args.to_owned()).into_exp())
-            }
+            },
             Old => Some(args[0].to_owned()),
             Result(n) => {
                 self.builder.set_loc_from_node(id);
                 Some(self.builder.mk_temporary(self.ret_locals[*n]))
-            }
+            },
             Trace(kind) => {
                 let exp = args[0].to_owned();
                 let env = self.builder.global_env();
@@ -750,7 +742,7 @@ impl<'a, 'b, T: ExpGenerator<'a>> ExpRewriterFunctions for SpecTranslator<'a, 'b
                     .debug_traces
                     .push((trace_id, *kind, exp.clone()));
                 Some(exp)
-            }
+            },
             _ => None,
         }
     }
@@ -763,8 +755,8 @@ impl<'a, 'b, T: ExpGenerator<'a>> ExpRewriterFunctions for SpecTranslator<'a, 'b
         }
     }
 
-    fn rewrite_enter_scope<'c>(&mut self, decls: impl Iterator<Item = &'c LocalVarDecl>) {
-        self.shadowed.push(decls.map(|d| d.name).collect())
+    fn rewrite_enter_scope<'c>(&mut self, decls: impl Iterator<Item = &'c (NodeId, Symbol)>) {
+        self.shadowed.push(decls.map(|(_, name)| *name).collect())
     }
 
     fn rewrite_exit_scope(&mut self) {

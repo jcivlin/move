@@ -85,7 +85,7 @@ impl<'a> Context<'a> {
                     ..info
                 };
                 Self::add_tparam_edges(acc, tparam, info, t)
-            }
+            },
             Apply(_, _, tys) => {
                 let info = EdgeInfo {
                     edge: Edge::Nested,
@@ -93,7 +93,7 @@ impl<'a> Context<'a> {
                 };
                 tys.iter()
                     .for_each(|t| Self::add_tparam_edges(acc, tparam, info.clone(), t))
-            }
+            },
             Param(tp) => {
                 let tp_neighbors = acc.entry(tp.clone()).or_insert_with(BTreeMap::new);
                 match tp_neighbors.get(tparam) {
@@ -106,9 +106,9 @@ impl<'a> Context<'a> {
                         ..
                     }) => {
                         tp_neighbors.insert(tparam.clone(), info);
-                    }
+                    },
                 }
-            }
+            },
         }
     }
 
@@ -221,25 +221,25 @@ fn exp(context: &mut Context, e: &T::Exp) {
         | E::BorrowLocal(_, _)
         | E::Break
         | E::Continue
-        | E::Spec(_, _)
         | E::UnresolvedError => (),
 
         E::ModuleCall(call) => {
             context.add_usage(e.exp.loc, &call.module, &call.name, &call.type_arguments);
             exp(context, &call.arguments)
-        }
-
+        },
+        E::VarCall(_, args) => exp(context, args),
         E::IfElse(eb, et, ef) => {
             exp(context, eb);
             exp(context, et);
             exp(context, ef);
-        }
+        },
         E::While(eb, eloop) => {
             exp(context, eb);
             exp(context, eloop);
-        }
+        },
         E::Loop { body: eloop, .. } => exp(context, eloop),
         E::Block(seq) => sequence(context, seq),
+        E::Lambda(_, body) => exp(context, body),
         E::Assign(_, _, er) => exp(context, er),
 
         E::Builtin(_, er)
@@ -253,16 +253,22 @@ fn exp(context: &mut Context, e: &T::Exp) {
         E::Mutate(el, er) | E::BinopExp(el, _, _, er) => {
             exp(context, el);
             exp(context, er)
-        }
+        },
 
         E::Pack(_, _, _, fields) => {
             for (_, _, (_, (_, fe))) in fields.iter() {
                 exp(context, fe)
             }
-        }
+        },
         E::ExpList(el) => exp_list(context, el),
 
         E::Cast(e, _) | E::Annotate(e, _) => exp(context, e),
+
+        E::Spec(anchor) => {
+            if !anchor.used_lambda_funs.is_empty() {
+                panic!("ICE spec anchor should not have lambda bindings in typing stage")
+            }
+        },
     }
 }
 
@@ -275,7 +281,7 @@ fn exp_list_item(context: &mut Context, item: &T::ExpListItem) {
     match item {
         I::Single(e, _) | I::Splat(_, e, _) => {
             exp(context, e);
-        }
+        },
     }
 }
 

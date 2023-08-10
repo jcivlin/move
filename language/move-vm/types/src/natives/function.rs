@@ -18,10 +18,9 @@
 //! function.
 
 use crate::values::Value;
-use smallvec::{smallvec, SmallVec};
-
 pub use move_binary_format::errors::{PartialVMError, PartialVMResult};
 pub use move_core_types::{gas_algebra::InternalGas, vm_status::StatusCode};
+use smallvec::{smallvec, SmallVec};
 
 /// Result of a native function execution requires charges for execution cost.
 ///
@@ -76,7 +75,7 @@ impl NativeResult {
         NativeResult::OutOfGas { partial_cost }
     }
 
-    /// Convert a PartialVMResult<()> into a PartialVMResult<NativeResult>
+    /// Convert a `PartialVMResult<()>` into a `PartialVMResult<NativeResult>`
     pub fn map_partial_vm_result_empty(
         cost: InternalGas,
         res: PartialVMResult<()>,
@@ -89,15 +88,15 @@ impl NativeResult {
                     cost,
                     abort_code.unwrap_or(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR as u64),
                 )
-            }
+            },
             Err(err) => {
                 return Err(err);
-            }
+            },
         };
         Ok(result)
     }
 
-    /// Convert a PartialVMResult<Value> into a PartialVMResult<NativeResult>
+    /// Convert a `PartialVMResult<Value>` into a `PartialVMResult<NativeResult>`
     pub fn map_partial_vm_result_one(
         cost: InternalGas,
         res: PartialVMResult<Value>,
@@ -110,10 +109,10 @@ impl NativeResult {
                     cost,
                     abort_code.unwrap_or(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR as u64),
                 )
-            }
+            },
             Err(err) => {
                 return Err(err);
-            }
+            },
         };
         Ok(result)
     }
@@ -133,7 +132,7 @@ macro_rules! pop_arg {
                 return Err(PartialVMError::new(
                     StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR,
                 ))
-            }
+            },
             Some(Err(e)) => return Err(e),
             Some(Ok(v)) => v,
         }

@@ -4,7 +4,6 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use move_cli::base::reroot_path;
-use move_command_line_common::env::MOVE_HOME;
 use move_core_types::account_address::AccountAddress;
 use move_package::{
     source_package::{
@@ -12,14 +11,13 @@ use move_package::{
         manifest_parser,
         manifest_parser::{parse_move_manifest_string, parse_source_manifest},
         parsed_manifest::{
-            CustomDepInfo, Dependencies, Dependency, DependencyKind, GitInfo, PackageName,
+            Dependencies, Dependency, PackageName,
             SourceManifest,
         },
     },
     Architecture, BuildConfig,
 };
 use move_symbol_pool::Symbol;
-use regex;
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
@@ -53,7 +51,7 @@ pub fn resolve_dependency(
         generate_abis: false,
         install_dir: None, // Option<PathBuf>
         force_recompilation: false,
-        lock_file: None, // Option<PathBuf>
+        // lock_file: None, // Option<PathBuf>
         additional_named_addresses: BTreeMap::new(),
         architecture: Some(Architecture::Move),
         fetch_deps_only: true,
@@ -191,19 +189,19 @@ fn parse_package_manifest(
     dep_name: &PackageName,
     mut root_path: PathBuf,
 ) -> Result<(SourceManifest, PathBuf)> {
-    root_path.push(local_path(&dep.kind));
-    let manifest_path = root_path.join(SourcePackageLayout::Manifest.path());
-
-    let contents = fs::read_to_string(&manifest_path).with_context(|| {
-        format!(
+    root_path.push(&dep.local);
+    match fs::read_to_string(root_path.join(SourcePackageLayout::Manifest.path())) {
+        Ok(contents) => {
+            let source_package: SourceManifest =
+                parse_move_manifest_string(contents).and_then(parse_source_manifest)?;
+            Ok((source_package, root_path))
+        },
+        Err(_) => Err(anyhow::format_err!(
             "Unable to find package manifest for '{}' at {:?}",
-            dep_name, manifest_path,
-        )
-    })?;
-
-    let manifest_toml = parse_move_manifest_string(contents)?;
-    let source_package = parse_source_manifest(manifest_toml)?;
-    Ok((source_package, root_path))
+            dep_name,
+            SourcePackageLayout::Manifest.path().join(root_path),
+        )),
+    }
 }
 
 // Note: for full dependency processing see same function in move-package
@@ -212,77 +210,9 @@ fn download_and_update_if_remote(
     dep: &Dependency,
     _skip_fetch_latest_git_deps: bool,
 ) -> Result<()> {
-    match &dep.kind {
-        DependencyKind::Local(_) => Ok(()),
-        _ => Err(anyhow::anyhow!(
-            "Only local dependency allowed in manifest (.toml) file"
-        )),
+    match &dep.local {
+        _ => Ok(()),
     }
-}
-
-// The local location of the repository containing the dependency of kind `kind` (and potentially
-// other, related dependencies).
-fn repository_path(kind: &DependencyKind) -> PathBuf {
-    match kind {
-        DependencyKind::Local(path) => path.clone(),
-
-        // Note: non-local was restricted in `download_and_update_if_remote`,
-        // but we keep the full functionality here, since it is an independent function.
-
-        // Downloaded packages are of the form <sanitized_git_url>_<rev_name>
-        DependencyKind::Git(GitInfo {
-            git_url,
-            git_rev,
-            subdir: _,
-        }) => [
-            &*MOVE_HOME,
-            &format!(
-                "{}_{}",
-                url_to_file_name(git_url.as_str()),
-                git_rev.replace('/', "__"),
-            ),
-        ]
-        .iter()
-        .collect(),
-
-        // Downloaded packages are of the form <sanitized_node_url>_<address>_<package>
-        DependencyKind::Custom(CustomDepInfo {
-            node_url,
-            package_address,
-            package_name,
-            subdir: _,
-        }) => [
-            &*MOVE_HOME,
-            &format!(
-                "{}_{}_{}",
-                url_to_file_name(node_url.as_str()),
-                package_address.as_str(),
-                package_name.as_str(),
-            ),
-        ]
-        .iter()
-        .collect(),
-    }
-}
-
-// The path that the dependency of kind `kind` is found at locally, after it is fetched.
-fn local_path(kind: &DependencyKind) -> PathBuf {
-    let mut repo_path = repository_path(kind);
-
-    if let DependencyKind::Git(GitInfo { subdir, .. })
-    | DependencyKind::Custom(CustomDepInfo { subdir, .. }) = kind
-    {
-        repo_path.push(subdir);
-    }
-
-    repo_path
-}
-
-fn url_to_file_name(url: &str) -> String {
-    regex::Regex::new(r"/|:|\.|@")
-        .unwrap()
-        .replace_all(url, "_")
-        .to_string()
 }
 
 pub fn path_to_string(path: &Path) -> anyhow::Result<String> {

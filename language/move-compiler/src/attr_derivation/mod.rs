@@ -2,9 +2,6 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use move_ir_types::location::{sp, Loc};
-use move_symbol_pool::Symbol;
-
 use crate::{
     attr_derivation::{async_deriver::derive_for_async, evm_deriver::derive_for_evm},
     parser::ast::{
@@ -15,6 +12,8 @@ use crate::{
     },
     shared::{CompilationEnv, Name, NamedAddressMap},
 };
+use move_ir_types::location::{sp, Loc};
+use move_symbol_pool::Symbol;
 
 mod async_deriver;
 mod evm_deriver;
@@ -107,6 +106,7 @@ pub fn new_native_fun(
         signature,
         acquires: vec![],
         name,
+        inline: false,
         body: sp(loc, FunctionBody_::Native),
     }
 }
@@ -129,6 +129,7 @@ pub fn new_fun(
         signature,
         acquires: vec![],
         name,
+        inline: false,
         body: sp(
             loc,
             FunctionBody_::Defined((vec![], vec![], None, Box::new(Some(def)))),

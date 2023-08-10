@@ -90,6 +90,7 @@ impl<'a, T: MoveResolver + ?Sized> MoveValueAnnotator<'a, T> {
         }
     }
 
+    // TODO
     pub fn get_resource_bytes(&self, addr: &AccountAddress, tag: &StructTag) -> Option<Vec<u8>> {
         self.cache.state.get_resource(addr, tag).ok()?
     }
@@ -114,6 +115,7 @@ impl<'a, T: MoveResolver + ?Sized> MoveValueAnnotator<'a, T> {
         &self,
         module: &ModuleId,
         function: &IdentStr,
+        ty_args: &[TypeTag],
         args: &[Vec<u8>],
     ) -> Result<Vec<AnnotatedMoveValue>> {
         let types: Vec<FatType> = self
@@ -143,11 +145,19 @@ impl<'a, T: MoveResolver + ?Sized> MoveValueAnnotator<'a, T> {
             types.len(),
             args.len(),
         );
+
+        // Make an approximation at the fat types for the type arguments
+        let ty_args: Vec<FatType> = ty_args.iter().map(|inner| inner.into()).collect();
+
         types
             .iter()
             .enumerate()
-            .map(|(i, ty)| self.view_value_by_fat_type(ty, &args[i]))
-            .collect::<Result<_>>()
+            .map(|(i, ty)| {
+                ty.subst(&ty_args)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|fat_type| self.view_value_by_fat_type(&fat_type, &args[i]))
+            })
+            .collect::<Result<Vec<AnnotatedMoveValue>>>()
     }
 
     pub fn view_resource(&self, tag: &StructTag, blob: &[u8]) -> Result<AnnotatedMoveStruct> {
@@ -237,7 +247,7 @@ impl<'a, T: MoveResolver + ?Sized> MoveValueAnnotator<'a, T> {
             },
             (MoveValue::Struct(s), FatType::Struct(ty)) => {
                 AnnotatedMoveValue::Struct(self.annotate_struct(s, ty.as_ref())?)
-            }
+            },
             (MoveValue::U8(_), _)
             | (MoveValue::U64(_), _)
             | (MoveValue::U128(_), _)
@@ -253,8 +263,8 @@ impl<'a, T: MoveResolver + ?Sized> MoveValueAnnotator<'a, T> {
                     "Cannot annotate value {:?} with type {:?}",
                     value,
                     ty
-                ))
-            }
+                ));
+            },
         })
     }
 }
@@ -293,7 +303,7 @@ fn pretty_print_value(
             }
             write_indent(f, indent)?;
             write!(f, "]")
-        }
+        },
         AnnotatedMoveValue::Bytes(v) => write!(f, "{}", hex::encode(v)),
         AnnotatedMoveValue::Struct(s) => pretty_print_struct(f, s, indent),
     }
@@ -355,7 +365,7 @@ impl serde::Serialize for AnnotatedMoveValue {
                 } else {
                     serializer.serialize_bytes(&n.to_le_bytes())
                 }
-            }
+            },
             U256(n) => {
                 // Copying logic & reasoning from above because if u128 is needs arb precision, u256 should too
                 if let Ok(i) = u64::try_from(*n) {
@@ -363,7 +373,7 @@ impl serde::Serialize for AnnotatedMoveValue {
                 } else {
                     serializer.serialize_bytes(&n.to_le_bytes())
                 }
-            }
+            },
             Bool(b) => serializer.serialize_bool(*b),
             Address(a) => a.short_str_lossless().serialize(serializer),
             Vector(t, vals) => {
@@ -373,7 +383,7 @@ impl serde::Serialize for AnnotatedMoveValue {
                     vec.serialize_element(v)?;
                 }
                 vec.end()
-            }
+            },
             Bytes(v) => {
                 // try to deserialize as utf8, fall back to hex with if we can't
                 let utf8_str = std::str::from_utf8(v);
@@ -387,7 +397,7 @@ impl serde::Serialize for AnnotatedMoveValue {
                 } else {
                     serializer.serialize_str(&hex::encode(v))
                 }
-            }
+            },
             Struct(s) => s.serialize(serializer),
         }
     }

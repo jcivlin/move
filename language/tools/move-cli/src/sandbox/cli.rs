@@ -77,11 +77,11 @@ pub enum SandboxCommand {
         /// Possibly-empty list of arguments passed to the transaction (e.g., `i` in
         /// `main(i: u64)`). Must match the arguments types expected by `script_file`.
         /// Supported argument types are
-        /// bool literals (true, false),
-        /// u64 literals (e.g., 10, 58),
-        /// address literals (e.g., 0x12, 0x0000000000000000000000000000000f),
-        /// hexadecimal strings (e.g., x"0012" will parse as the vector<u8> value [00, 12]), and
-        /// ASCII strings (e.g., 'b"hi" will parse as the vector<u8> value [68, 69]).
+        /// bool literals (`true`, `false`),
+        /// u64 literals (e.g., `10`, `58`),
+        /// address literals (e.g., `0x12`, `0x0000000000000000000000000000000f`),
+        /// hexadecimal strings (e.g., `x"0012"` will parse as the `vector<u8>` value `[00, 12]`), and
+        /// ASCII strings (e.g., `'b"hi"` will parse as the `vector<u8>` value `[68, 69]`).
         #[clap(
             long = "args",
             parse(try_from_str = parser::parse_transaction_argument),
@@ -228,7 +228,7 @@ impl SandboxCommand {
                     override_ordering.as_ref().map(|o| o.as_slice()),
                     move_args.verbose,
                 )
-            }
+            },
             SandboxCommand::Run {
                 script_file,
                 script_name,
@@ -257,7 +257,7 @@ impl SandboxCommand {
                     *dry_run,
                     move_args.verbose,
                 )
-            }
+            },
             SandboxCommand::Test {
                 use_temp_dir,
                 track_cov,
@@ -274,7 +274,7 @@ impl SandboxCommand {
                 let state = PackageContext::new(&move_args.package_path, &move_args.build_config)?
                     .prepare_state(bytecode_version, storage_dir)?;
                 sandbox::commands::view(&state, file)
-            }
+            },
             SandboxCommand::Clean {} => {
                 // delete storage
                 let storage_dir = Path::new(storage_dir);
@@ -295,17 +295,17 @@ impl SandboxCommand {
                     fs::remove_dir_all(&build_dir)?;
                 }
                 Ok(())
-            }
+            },
             SandboxCommand::Doctor {} => {
                 let state = PackageContext::new(&move_args.package_path, &move_args.build_config)?
                     .prepare_state(bytecode_version, storage_dir)?;
                 sandbox::commands::doctor(&state)
-            }
+            },
             SandboxCommand::Generate { cmd } => {
                 let state = PackageContext::new(&move_args.package_path, &move_args.build_config)?
                     .prepare_state(bytecode_version, storage_dir)?;
                 handle_generate_commands(cmd, &state)
-            }
+            },
         }
     }
 }
@@ -323,6 +323,6 @@ fn handle_generate_commands(cmd: &GenerateCommand, state: &OnDiskStateView) -> R
                 options.shallow,
                 state,
             )
-        }
+        },
     }
 }

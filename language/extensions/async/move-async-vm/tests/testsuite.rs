@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::bail;
+use anyhow::{bail, Error};
 use itertools::Itertools;
 use move_async_vm::{
     actor_metadata,
@@ -19,9 +19,11 @@ use move_compiler::{
 use move_core_types::{
     account_address::AccountAddress,
     effects::{ChangeSet, Op},
+    ident_str,
     identifier::{IdentStr, Identifier},
     language_storage::{ModuleId, StructTag},
-    resolver::{ModuleResolver, ResourceResolver},
+    metadata::Metadata,
+    resolver::{resource_size, ModuleResolver, ResourceResolver},
 };
 use move_prover_test_utils::{baseline_test::verify_or_update_baseline, extract_test_directives};
 use move_vm_test_utils::gas_schedule::GasStatus;
@@ -106,8 +108,8 @@ impl Harness {
             };
 
             // Put a start message for this actor into the mailbox.
-            let entry_point_id = Identifier::from_str("start")?;
-            let hash = actor_metadata::message_hash(&actor, &entry_point_id);
+            let entry_point_id = ident_str!("start");
+            let hash = actor_metadata::message_hash(&actor, entry_point_id);
             mailbox.push_back((addr, hash, vec![]));
         }
 
@@ -141,7 +143,7 @@ impl Harness {
 
     fn publish_module(
         &self,
-        session: &mut AsyncSession<HarnessProxy>,
+        session: &mut AsyncSession,
         id: &IdentStr,
         gas: &mut GasStatus,
         done: &mut BTreeSet<Identifier>,
@@ -176,7 +178,7 @@ impl Harness {
                 }
                 mailbox.extend(success.messages);
                 self.commit_changeset(success.change_set)
-            }
+            },
             Err(error) => self.log(format!("  FAIL  {:}", error)),
         }
     }
@@ -199,19 +201,19 @@ impl Harness {
                             .borrow_mut()
                             .insert((addr, struct_tag), v)
                             .is_none());
-                    }
+                    },
                     Op::Modify(v) => {
                         self.resource_store
                             .borrow_mut()
                             .insert((addr, struct_tag), v)
                             .unwrap();
-                    }
+                    },
                     Op::Delete => {
                         self.resource_store
                             .borrow_mut()
                             .remove(&(addr, struct_tag))
                             .unwrap();
-                    }
+                    },
                 }
             }
         }
@@ -359,7 +361,7 @@ impl Harness {
                 ),
                 Ok((mut units, _)) => {
                     module_cache.insert(id.to_owned(), units.remove(0).into_compiled_unit());
-                }
+                },
             }
         }
         Ok(module_cache)
@@ -377,9 +379,11 @@ struct HarnessProxy<'a> {
 }
 
 impl<'a> ModuleResolver for HarnessProxy<'a> {
-    type Error = ();
+    fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+        vec![]
+    }
 
-    fn get_module(&self, id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_module(&self, id: &ModuleId) -> Result<Option<Vec<u8>>, Error> {
         Ok(self
             .harness
             .module_cache
@@ -389,20 +393,20 @@ impl<'a> ModuleResolver for HarnessProxy<'a> {
 }
 
 impl<'a> ResourceResolver for HarnessProxy<'a> {
-    type Error = ();
-
-    fn get_resource(
+    fn get_resource_with_metadata(
         &self,
         address: &AccountAddress,
         typ: &StructTag,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        _metadata: &[Metadata],
+    ) -> anyhow::Result<(Option<Vec<u8>>, usize)> {
         let res = self
             .harness
             .resource_store
             .borrow()
             .get(&(*address, typ.clone()))
             .cloned();
-        Ok(res)
+        let res_size = resource_size(&res);
+        Ok((res, res_size))
     }
 }
 

@@ -34,6 +34,7 @@ use crate::{
     cli::Args,
     stackless::{extensions::*, llvm, module_context::ModuleContext, rttydesc::RttyContext},
 };
+use move_core_types::account_address::{AccountAddress};
 use chrono::Local as ChronoLocal;
 use env_logger::fmt::Color;
 use log::{debug, Level};
@@ -300,7 +301,10 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                         .strip_prefix("0x");
                     curr_signer += 1;
                     let addr_val = BigUint::parse_bytes(signer.unwrap().as_bytes(), 16);
-                    let c = self.constant(&sbc::Constant::Address(addr_val.unwrap()), None);
+                    let addr_str = addr_val.unwrap().to_string();
+                    let addr_ac = AccountAddress::from_hex_literal(&addr_str).unwrap();
+                    let c = self.constant(
+                        &sbc::Constant::Address(move_model::ast::Address::Numerical(addr_ac)), None);
                     self.module_cx
                         .llvm_builder
                         .build_store(c.as_any_value(), local.llval);
@@ -1459,7 +1463,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             let fn_id = fun_id.qualified(mod_id);
             let fn_env = global_env.get_function(fn_id);
             let arg_types = fn_env.get_parameter_types();
-            let ret_types = fn_env.get_return_types();
+            let ret_types = fn_env.get_result_type().flatten();
             let return_val_is_generic = match ret_types.len() {
                 0 => false,
                 1 => matches!(ret_types[0], mty::Type::TypeParameter(_)),
@@ -1575,7 +1579,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 //
                 // The address is a BigUint which only stores as many bits as needed, so pad it out
                 // to the full address length if needed.
-                let mut bytes = val.to_bytes_le();
+                let mut bytes = val.expect_numerical().to_vec();
                 bytes.extend(vec![0; addr_len - bytes.len()]);
                 let aval = llcx.const_int_array::<u8>(&bytes).as_const();
                 let gval = self
@@ -1597,7 +1601,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let vals: Vec<llvm::Constant> = val_vec
                     .iter()
                     .map(|v| {
-                        let mut bytes = v.to_bytes_le();
+                        let mut bytes = v.expect_numerical().to_vec();
                         bytes.extend(vec![0; addr_len - bytes.len()]);
                         llcx.const_int_array::<u8>(&bytes).as_const()
                     })

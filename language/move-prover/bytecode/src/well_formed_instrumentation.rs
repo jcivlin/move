@@ -14,21 +14,19 @@
 //! Because data invariants cannot refer to global memory, they are not relevant for memory
 //! usage, and their injection therefore can happen after this phase.
 
-use num::{BigUint, Zero};
-
-use move_model::{
-    ast::{Operation, QuantKind},
-    exp_generator::ExpGenerator,
-    model::FunctionEnv,
-    ty::BOOL_TYPE,
-};
-
 use crate::{
     function_data_builder::FunctionDataBuilder,
     function_target::FunctionData,
     function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder},
     stackless_bytecode::PropKind,
     usage_analysis::UsageProcessor,
+};
+use move_core_types::account_address::AccountAddress;
+use move_model::{
+    ast::{Operation, QuantKind},
+    exp_generator::ExpGenerator,
+    model::FunctionEnv,
+    ty::BOOL_TYPE,
 };
 
 pub struct WellFormedInstrumentationProcessor {}
@@ -59,18 +57,16 @@ impl FunctionTargetProcessor for WellFormedInstrumentationProcessor {
 
         // Inject well-formedness assumptions for parameters.
         for param in 0..builder.fun_env.get_parameter_count() {
-            let exp = builder.mk_call(
-                &BOOL_TYPE,
-                Operation::WellFormed,
-                vec![builder.mk_temporary(param)],
-            );
+            let exp = builder.mk_call(&BOOL_TYPE, Operation::WellFormed, vec![
+                builder.mk_temporary(param)
+            ]);
             builder.emit_prop(PropKind::Assume, exp);
         }
 
         // Inject well-formedness assumption for used memory.
         for mem in usage.accessed.all {
             let struct_env = builder.global_env().get_struct_qid(mem.to_qualified_id());
-            if struct_env.is_native_or_intrinsic() {
+            if struct_env.is_intrinsic() {
                 // If this is native or intrinsic memory, skip this.
                 continue;
             }
@@ -85,7 +81,7 @@ impl FunctionTargetProcessor for WellFormedInstrumentationProcessor {
             // assume it has this value.
             if let Some(spec_var) = struct_env.get_ghost_memory_spec_var() {
                 let mem_ty = mem.to_type();
-                let zero_addr = builder.mk_address_const(BigUint::zero());
+                let zero_addr = builder.mk_address_const(AccountAddress::ZERO);
                 let exists = builder.mk_call_with_inst(
                     &BOOL_TYPE,
                     vec![mem_ty.clone()],

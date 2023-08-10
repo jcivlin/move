@@ -4,19 +4,6 @@
 
 //! Data flow analysis computing borrow information for preparation of memory_instrumentation.
 
-use std::{borrow::BorrowMut, collections::BTreeMap, fmt};
-
-use itertools::Itertools;
-
-use move_binary_format::file_format::CodeOffset;
-use move_model::{
-    ast::TempIndex,
-    model::{FunctionEnv, GlobalEnv, QualifiedInstId},
-    pragmas::INTRINSIC_FUN_MAP_BORROW_MUT,
-    ty::Type,
-    well_known::VECTOR_BORROW_MUT,
-};
-
 use crate::{
     dataflow_analysis::{DataflowAnalysis, TransferFunctions},
     dataflow_domains::{AbstractDomain, JoinResult, MapDomain, SetDomain},
@@ -26,6 +13,16 @@ use crate::{
     stackless_bytecode::{AssignKind, BorrowEdge, BorrowNode, Bytecode, IndexEdgeKind, Operation},
     stackless_control_flow_graph::StacklessControlFlowGraph,
 };
+use itertools::Itertools;
+use move_binary_format::file_format::CodeOffset;
+use move_model::{
+    ast::TempIndex,
+    model::{FunctionEnv, GlobalEnv, QualifiedInstId},
+    pragmas::{INTRINSIC_FUN_MAP_BORROW_MUT, INTRINSIC_FUN_MAP_BORROW_MUT_WITH_DEFAULT},
+    ty::Type,
+    well_known::VECTOR_BORROW_MUT,
+};
+use std::{borrow::BorrowMut, collections::BTreeMap, fmt};
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Default)]
 pub struct BorrowInfo {
@@ -117,7 +114,7 @@ impl BorrowInfo {
         match node {
             BorrowNode::LocalRoot(..) | BorrowNode::GlobalRoot(..) => {
                 trees.push(order);
-            }
+            },
             BorrowNode::Reference(index) => {
                 if next.is_in_use(node) {
                     // stop at a live reference
@@ -144,10 +141,10 @@ impl BorrowInfo {
                         }
                     }
                 }
-            }
+            },
             BorrowNode::ReturnPlaceholder(..) => {
                 unreachable!("placeholder node type is not expected here");
-            }
+            },
         }
     }
 
@@ -322,7 +319,9 @@ impl BorrowInfo {
                 }
             } else {
                 assert!(
-                    !callee_env.get_return_type(ret_idx).is_mutable_reference(),
+                    !callee_env
+                        .get_result_type_at(ret_idx)
+                        .is_mutable_reference(),
                     "inconsistent borrow information: undefined output: {}",
                     callee_env.get_full_name_str()
                 )
@@ -355,6 +354,7 @@ impl BorrowAnnotation {
     pub fn get_summary(&self) -> &BorrowInfo {
         &self.summary
     }
+
     pub fn get_borrow_info_at(&self, code_offset: CodeOffset) -> Option<&BorrowInfoAtCodeOffset> {
         self.code_map.get(&code_offset)
     }
@@ -441,6 +441,9 @@ impl FunctionTargetProcessor for BorrowAnalysisProcessor {
         writeln!(f, "\n\n==== borrow analysis summaries ====\n")?;
         for ref module in env.get_modules() {
             for ref fun in module.get_functions() {
+                if fun.is_inline() {
+                    continue;
+                }
                 for (_, ref target) in targets.get_targets(fun) {
                     if let Some(an) = target.get_annotations().get::<BorrowAnnotation>() {
                         if !an.summary.is_empty() {
@@ -506,7 +509,9 @@ fn get_custom_annotation_or_none(
             // check whether this borrow has known special semantics
             if fun_env.is_well_known(VECTOR_BORROW_MUT) {
                 Some(summarize_custom_borrow(IndexEdgeKind::Vector, &[0], &[0]))
-            } else if fun_env.is_intrinsic_of(INTRINSIC_FUN_MAP_BORROW_MUT) {
+            } else if fun_env.is_intrinsic_of(INTRINSIC_FUN_MAP_BORROW_MUT)
+                || fun_env.is_intrinsic_of(INTRINSIC_FUN_MAP_BORROW_MUT_WITH_DEFAULT)
+            {
                 Some(summarize_custom_borrow(IndexEdgeKind::Table, &[0], &[0]))
             } else if fun_env.is_native_or_intrinsic() {
                 // non-borrow related native/intrinsic has no borrow semantics
@@ -515,7 +520,7 @@ fn get_custom_annotation_or_none(
                 // this is a normal function and we can summarize its borrow semantics
                 None
             }
-        }
+        },
         Some(name) => Some(summarize_custom_borrow(
             IndexEdgeKind::Custom(name),
             &[0],
@@ -595,6 +600,7 @@ impl<'a> BorrowAnalysis<'a> {
 
 impl<'a> TransferFunctions for BorrowAnalysis<'a> {
     type State = BorrowInfo;
+
     const BACKWARD: bool = false;
 
     fn execute(&self, state: &mut BorrowInfo, instr: &Bytecode, code_offset: CodeOffset) {
@@ -615,11 +621,11 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                         assert!(!self.func_target.get_local_type(*src).is_reference());
                         assert!(!self.func_target.get_local_type(*dest).is_reference());
                         state.del_node(&src_node);
-                    }
+                    },
                     AssignKind::Copy => {
                         assert!(!self.func_target.get_local_type(*src).is_reference());
                         assert!(!self.func_target.get_local_type(*dest).is_reference());
-                    }
+                    },
                     AssignKind::Store => {
                         if self.func_target.get_local_type(*src).is_mutable_reference() {
                             assert!(self
@@ -628,9 +634,9 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                                 .is_mutable_reference());
                             state.add_edge(src_node, dest_node, BorrowEdge::Direct);
                         }
-                    }
+                    },
                 }
-            }
+            },
             Call(_, dests, oper, srcs, _) => {
                 use Operation::*;
                 match oper {
@@ -643,7 +649,7 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                         let src_node = self.borrow_node(srcs[0]);
                         state.add_node(dest_node.clone());
                         state.add_edge(src_node, dest_node, BorrowEdge::Direct);
-                    }
+                    },
                     BorrowGlobal(mid, sid, inst)
                         if livevar_annotation_at.after.contains(&dests[0]) =>
                     {
@@ -655,7 +661,7 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                         });
                         state.add_node(dest_node.clone());
                         state.add_edge(src_node, dest_node, BorrowEdge::Direct);
-                    }
+                    },
                     BorrowField(mid, sid, inst, field)
                         if livevar_annotation_at.after.contains(&dests[0]) =>
                     {
@@ -667,7 +673,7 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                             dest_node,
                             BorrowEdge::Field(mid.qualified_inst(*sid, inst.to_owned()), *field),
                         );
-                    }
+                    },
                     Function(mid, fid, targs) => {
                         let callee_env = &self
                             .func_target
@@ -692,11 +698,11 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                                         None => {
                                             // 1st iteration of the recursive case
                                             BorrowAnnotation::default()
-                                        }
+                                        },
                                         Some(annotation) => {
                                             // non-recursive case or Nth iteration of fixedpoint (N >= 1)
                                             annotation.clone()
-                                        }
+                                        },
                                     }
                                 });
 
@@ -707,18 +713,18 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                             srcs,
                             dests,
                         );
-                    }
+                    },
                     OpaqueCallBegin(_, _, _) | OpaqueCallEnd(_, _, _) => {
                         // just skip
-                    }
+                    },
                     _ => {
                         // Other operations do not create references.
-                    }
+                    },
                 }
-            }
+            },
             _ => {
                 // Other instructions do not create references
-            }
+            },
         }
 
         // Update live_vars.

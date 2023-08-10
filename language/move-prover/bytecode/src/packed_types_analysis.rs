@@ -2,15 +2,6 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeSet;
-
-use move_binary_format::file_format::CodeOffset;
-use move_core_types::language_storage::{StructTag, TypeTag};
-use move_model::{
-    model::{FunctionEnv, GlobalEnv},
-    ty::Type,
-};
-
 use crate::{
     compositional_analysis::{CompositionalAnalysis, SummaryCache},
     dataflow_analysis::{DataflowAnalysis, TransferFunctions},
@@ -18,7 +9,15 @@ use crate::{
     function_target::{FunctionData, FunctionTarget},
     function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder, FunctionVariant},
     stackless_bytecode::{Bytecode, Operation},
+    COMPILED_MODULE_AVAILABLE,
 };
+use move_binary_format::file_format::CodeOffset;
+use move_core_types::language_storage::{StructTag, TypeTag};
+use move_model::{
+    model::{FunctionEnv, GlobalEnv},
+    ty::Type,
+};
+use std::collections::BTreeSet;
 
 /// Get all closed types that may be packed by (1) genesis and (2) all transaction scripts.
 /// This makes some simplifying assumptions that are not correct in general, but hold for the
@@ -35,7 +34,10 @@ pub fn get_packed_types(
 ) -> BTreeSet<StructTag> {
     let mut packed_types = BTreeSet::new();
     for module_env in env.get_modules() {
-        let module_name = module_env.get_identifier().to_string();
+        let module_name = module_env
+            .get_identifier()
+            .expect(COMPILED_MODULE_AVAILABLE)
+            .to_string();
         let is_script = module_env.is_script_module();
         if is_script || module_name == "Genesis" {
             for func_env in module_env.get_functions() {
@@ -99,6 +101,7 @@ struct PackedTypesAnalysis<'a> {
 
 impl<'a> TransferFunctions for PackedTypesAnalysis<'a> {
     type State = PackedTypesState;
+
     const BACKWARD: bool = false;
 
     fn execute(&self, state: &mut Self::State, instr: &Bytecode, _offset: CodeOffset) {
@@ -113,15 +116,15 @@ impl<'a> TransferFunctions for PackedTypesAnalysis<'a> {
                         Some(tag) => {
                             // type is closed
                             state.closed_types.insert(tag);
-                        }
+                        },
                         None => {
                             // type is open
                             state
                                 .open_types
                                 .insert(Type::Struct(*mid, *sid, types.clone()));
-                        }
+                        },
                     }
-                }
+                },
                 Function(mid, fid, types) => {
                     if let Some(summary) = self
                         .cache
@@ -146,10 +149,10 @@ impl<'a> TransferFunctions for PackedTypesAnalysis<'a> {
                         }
                     }
                     // TODO(mengxu, sam): fix the recursive function case
-                }
+                },
                 OpaqueCallBegin(_, _, _) | OpaqueCallEnd(_, _, _) => {
                     // skip
-                }
+                },
                 _ => (),
             }
         }
