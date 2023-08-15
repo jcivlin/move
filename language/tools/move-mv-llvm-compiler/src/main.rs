@@ -6,7 +6,7 @@
 
 //#![forbid(unsafe_code)]
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use clap::Parser;
 use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
 use llvm_sys::{core::LLVMContextCreate, prelude::LLVMModuleRef};
@@ -34,6 +34,8 @@ use move_stdlib::{move_stdlib_files, move_stdlib_named_addresses};
 use std::path::PathBuf;
 
 use move_mv_llvm_compiler::package::resolve_dependency;
+
+use move_command_line_common::address::ParsedAddress;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -85,7 +87,10 @@ fn main() -> anyhow::Result<()> {
         if let Some(ref move_package_path_maybe) = args.move_package_path {
             let move_package_path: PathBuf = PathBuf::from(move_package_path_maybe);
             let res = resolve_dependency(move_package_path, args.dev, args.test);
-            if let Ok(..) = res {
+            if let Err(err) = &res {
+                eprintln!("Error: {:#?}", &res);
+                bail!("Error resolving dependency: {}", err);
+            } else {
                 let compiler_dependency: Vec<String> = res
                     .as_ref()
                     .unwrap()
@@ -103,18 +108,28 @@ fn main() -> anyhow::Result<()> {
                 // but need to check for possible reassignment, so making this in old fashion loop:
                 for (symbol, account_address) in account_addresses {
                     let name = symbol.as_str().to_string();
-                    let address =
-                        NumericalAddress::parse_str(&account_address.to_string()).unwrap();
-                    if let Some(value) = named_address_map.get(&name) {
-                        if *value != address {
-                            bail!("{} already has assigned address {}, cannot reassign with new address {}. Possibly an error in Move.toml.",
-                            name, address, *value);
+                    let address_string = account_address.to_string();
+                    let address_string_hex = format!("0x{}", address_string);
+                    match NumericalAddress::parse_str(&address_string_hex).map_err(|s| {
+                        anyhow!(
+                            "Failed to parse numerical address '{}'. Got error: {}",
+                            address_string_hex,
+                            s
+                        )
+                    }) {
+                        Ok(address) => {
+                            if let Some(value) = named_address_map.get(&name) {
+                                if *value != address {
+                                    bail!("{} already has assigned address {}, cannot reassign with new address {}. Possibly an error in Move.toml.",
+                                        name, address, *value);
+                                }
+                            } else {
+                                named_address_map.insert(name, address);
+                            }
                         }
-                    } else {
-                        named_address_map.insert(name, address);
-                    }
+                        Err(err) => eprintln!("Error reding address: {}", err),
+                    };
                 }
-
                 deps.push(PackagePaths {
                     name: None,
                     paths: compiler_dependency,
