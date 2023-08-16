@@ -2,14 +2,12 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(unused)]
-
 //#![forbid(unsafe_code)]
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{bail, Context};
 use clap::Parser;
 use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
-use llvm_sys::{core::LLVMContextCreate, prelude::LLVMModuleRef};
+use llvm_sys::prelude::LLVMModuleRef;
 use move_binary_format::{
     binary_views::BinaryIndexedView,
     file_format::{CompiledModule, CompiledScript},
@@ -21,10 +19,10 @@ use move_command_line_common::files::{
 use move_compiler::{shared::PackagePaths, Flags};
 use move_ir_types::location::Spanned;
 use move_model::{
-    model::GlobalEnv, options::ModelBuilderOptions, run_model_builder,
+    model::GlobalEnv, options::ModelBuilderOptions,
     run_model_builder_with_options_and_compilation_flags,
 };
-use move_mv_llvm_compiler::{cli::Args, disassembler::Disassembler};
+use move_mv_llvm_compiler::cli::Args;
 use move_symbol_pool::Symbol as SymbolPool;
 use std::{fs, path::Path};
 
@@ -34,8 +32,6 @@ use move_stdlib::{move_stdlib_files, move_stdlib_named_addresses};
 use std::path::PathBuf;
 
 use move_mv_llvm_compiler::package::resolve_dependency;
-
-use move_command_line_common::address::ParsedAddress;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -58,7 +54,15 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(ref x) = args.move_package_path {
         let p = PathBuf::from(x);
-        resolve_dependency(p, args.dev, args.test);
+        resolve_dependency(p.clone(), args.dev, args.test)
+            .or_else(|err| {
+                bail!(
+                    "Failed to resolve dependency for '{}'. Got error: {}",
+                    p.to_string_lossy(),
+                    err
+                );
+            })
+            .unwrap();
     }
 
     let global_env: GlobalEnv;
@@ -110,25 +114,22 @@ fn main() -> anyhow::Result<()> {
                     let name = symbol.as_str().to_string();
                     let address_string = account_address.to_string();
                     let address_string_hex = format!("0x{}", address_string);
-                    match NumericalAddress::parse_str(&address_string_hex).map_err(|s| {
-                        anyhow!(
-                            "Failed to parse numerical address '{}'. Got error: {}",
-                            address_string_hex,
-                            s
-                        )
-                    }) {
-                        Ok(address) => {
-                            if let Some(value) = named_address_map.get(&name) {
-                                if *value != address {
-                                    bail!("{} already has assigned address {}, cannot reassign with new address {}. Possibly an error in Move.toml.",
-                            name, address, *value);
-                                }
-                            } else {
-                                named_address_map.insert(name, address);
-                            }
+                    let address = NumericalAddress::parse_str(&address_string_hex)
+                        .or_else(|err| {
+                            bail!(
+                                "Failed to parse numerical address '{}'. Got error: {}",
+                                address_string_hex,
+                                err
+                            );
+                        })
+                        .unwrap();
+                    if let Some(value) = named_address_map.get(&name) {
+                        if *value != address {
+                            bail!("{} already has assigned address {}, cannot reassign with new address {}. Possibly an error in Move.toml.",
+                                  name, *value, address);
                         }
-                        Err(err) => eprintln!("Error reding address: {}", err),
-                    };
+                    }
+                    named_address_map.insert(name, address);
                 }
                 deps.push(PackagePaths {
                     name: None,
@@ -144,7 +145,7 @@ fn main() -> anyhow::Result<()> {
             named_address_map: named_address_map.clone(),
         }];
         let options = ModelBuilderOptions::default();
-        let mut flags = if !args.test {
+        let flags = if !args.test {
             Flags::verification()
         } else {
             Flags::testing()
@@ -248,7 +249,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    match (&*args.gen_dot_cfg) {
+    match &*args.gen_dot_cfg {
         "write" | "view" | "" => {}
         _ => {
             eprintln!(
