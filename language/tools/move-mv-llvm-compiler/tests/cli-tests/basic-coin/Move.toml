@@ -8,5 +8,3 @@ NamedAddr = "0xCAFE"
 
 [dependencies]
 MoveStdlib = { local = "../../../../../move-stdlib/", addr_subst = { "std" = "0x1" } }
-# MoveStdlib = { local = "../../../move-stdlib" }
-
