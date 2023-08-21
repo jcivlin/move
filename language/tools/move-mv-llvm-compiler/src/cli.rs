@@ -96,9 +96,6 @@ pub fn absolute_path(x: &Option<String>, title: &String) -> anyhow::Result<PathB
     }
     let path = &x.clone().unwrap();
     let mut p = PathBuf::from(path);
-    if !p.exists() {
-        bail!("Error: path {} does not exist", path);
-    }
     if p.is_relative() {
         p = std::fs::canonicalize(Path::new(&p))
             .or_else(|err| {

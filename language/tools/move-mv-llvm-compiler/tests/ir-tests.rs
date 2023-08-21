@@ -208,9 +208,7 @@ fn compile_mvbc_to_llvmir(
     cmd.arg("-b");
     cmd.arg(test_plan.mvbc_file.to_str().expect("PathBuf"));
     cmd.arg("-o");
-    let test_plan_string = test_plan.llir_file.to_str().expect("PathBuf").to_string();
-    dbg!(&test_plan_string);
-    cmd.arg(test_plan_string);
+    cmd.arg(test_plan.llir_file.to_str().expect("PathBuf"));
     cmd.arg("-S");
 
     let output = cmd.output().context("run move-mv-llvm-compiler failed")?;
