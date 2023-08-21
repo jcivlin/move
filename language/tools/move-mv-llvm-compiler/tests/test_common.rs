@@ -596,7 +596,7 @@ pub fn store_results<P: AsRef<Path>>(source: P, destination: P) -> std::io::Resu
         let dest_path = destination.as_ref().join(entry_path.file_name().unwrap());
 
         if entry_path.is_file() {
-            fs::copy(&entry_path, &dest_path)?;
+            fs::copy(&entry_path, dest_path)?;
         }
     }
 

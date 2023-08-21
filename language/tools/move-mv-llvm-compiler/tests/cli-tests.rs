@@ -77,7 +77,7 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
 
     let toml_dir: String;
     if let Some(pos) = test_name.rfind('.') {
-        toml_dir = format!("{}", test_name[..pos].to_string());
+        toml_dir = test_name[..pos].to_string();
     } else {
         bail!("No extension found in the filename {}", test_name);
     }
@@ -104,7 +104,7 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
     tc::run_move_to_llvm_build(
         &harness_paths,
         &test_plan,
-        vec![&"-p".to_string(), &p_absolute_path.to_string()],
+        vec![&"-p".to_string(), &p_absolute_path],
     )?;
 
     tc::compare_results(&test_plan)?;
