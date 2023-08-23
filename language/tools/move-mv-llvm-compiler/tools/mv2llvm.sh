@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) The Diem Core Contributors
+# Copyright (c) The Move Contributors
+# SPDX-License-Identifier: Apache-2.0
 
 ### Use this script to run all .mv files in a given directory thru `move-mv-llvm-compiler``.
 ###
