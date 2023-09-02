@@ -54,19 +54,17 @@ fn main() -> anyhow::Result<()> {
     // and cli may move cwd while resolving them.
     let mut output_file_path = args.output_file_path.clone();
     if output_file_path != "-" {
-        let out_absolute = absolute_new_file(
-            Some(output_file_path.to_string()),
-            &"output_file_path".to_string(),
-        );
+        let out_absolute =
+            absolute_new_file(Some(output_file_path.to_string()), "output_file_path");
         let out_path = out_absolute.unwrap();
         output_file_path = out_path.to_string_lossy().to_string();
     };
 
     let global_env: GlobalEnv;
     if compilation {
-        let target_path = absolute_existing_file(args.compile, &"compile".to_string())?;
+        let target_path = absolute_existing_file(args.compile, "compile")?;
         let move_package_path: Result<std::path::PathBuf, anyhow::Error> =
-            absolute_existing_file(args.move_package_path, &"move_package_path".to_string());
+            absolute_existing_file(args.move_package_path, "move_package_path");
         let mut deps = vec![];
         let mut named_address_map = std::collections::BTreeMap::<String, _>::new();
         let target_path_string: String = target_path.to_string_lossy().to_string();
