@@ -15,6 +15,95 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug pure 'move-to-llvm-compiler'",
+            "env": {
+                "RUST_BACKTRACE": "1",
+                "CARGO_MANIFEST_DIR": "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler",
+                "LLVM_SYS_150_PREFIX": "/home/sol/work/git/platform-tools/out/rust/build/x86_64-unknown-linux-gnu/llvm",
+                "PLATFORM_TOOLS_ROOT": "/home/sol/.cache/solana/v1.35"
+            },
+            "program": "/home/sol/work/git/move/target/debug/move-mv-llvm-compiler",
+            "args": [
+                    // "-p",
+                    // "/home/sol/work/git/move/language/move-stdlib",
+                    // "/home/sol/work/git/move/language/extensions/move-table-extension/Move.toml",
+                    //
+                    "--stdlib",
+                    "--compile",
+                    // "/tmp/1/build/test_struct/bytecode_modules/M7.move",
+                    //
+                    "/home/sol/work/git/move/language/move-stdlib/tests/ascii_tests.move",
+                    //
+                    //"/home/sol/tmp/ascii_tests.move",
+                    // "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler/tests/move-to-llvm-tests/multi-module.move",
+                    "-S",
+                    "--test",
+                    // "-L",
+                    "-o",
+                    "/home/sol/tmp/ascii_tests"
+                    //"/home/sol/tmp/M7"
+                    //"/home/sol/tmp/ascii_test"
+                    // "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler/tests/move-to-llvm-tests/struct01-build"
+                ],
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug pure 'ascii_tests.move '",
+            "env": {
+                "RUST_BACKTRACE": "1",
+                "CARGO_MANIFEST_DIR": "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler",
+                "LLVM_SYS_150_PREFIX": "/home/sol/work/git/platform-tools/out/rust/build/x86_64-unknown-linux-gnu/llvm",
+                "PLATFORM_TOOLS_ROOT": "/home/sol/.cache/solana/v1.35"
+            },
+            "program": "/home/sol/work/git/move/target/debug/move-mv-llvm-compiler",
+            "args": [
+                    // "-p",
+                    // "/home/sol/work/git/move/language/move-stdlib",
+                    //
+                    "--stdlib",
+                    "--compile",
+                    //
+                    "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler/tmp/ascii_tests.move",
+                    //
+                    "-S",
+                    "--test",
+                    "-o",
+                    "/home/sol/tmp/ascii_tests"
+                ],
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug-2 pure 'ascii_tests.move '",
+            "env": {
+                "RUST_BACKTRACE": "1",
+                "CARGO_MANIFEST_DIR": "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler",
+                "LLVM_SYS_150_PREFIX": "/home/sol/work/git/platform-tools/out/rust/build/x86_64-unknown-linux-gnu/llvm",
+                "PLATFORM_TOOLS_ROOT": "/home/sol/.cache/solana/v1.35"
+            },
+            "program": "/home/sol/work/git/move/target/debug/move-mv-llvm-compiler",
+            "args": [
+                    "--stdlib",
+                    "--compile",
+                    //
+                    "ascii_tests.move",
+                    //
+                    "-S",
+                    "--test",
+                    "-o",
+                    "/home/sol/tmp/ascii_tests"
+                ],
+            "cwd": "/home/sol/work/git/move/language/tools/move-mv-llvm-compiler/tmp",
+            "stopOnEntry": false
+        },
+        {
             "name": "Launch with Extension",
             "type": "extensionHost",
             "request": "launch",
