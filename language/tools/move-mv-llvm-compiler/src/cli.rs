@@ -86,10 +86,8 @@ pub struct Args {
     pub dot_file_path: String,
 }
 
-use {
-    anyhow::{bail, Result},
-    std::{fs::canonicalize, path::PathBuf},
-};
+use anyhow::{bail, Result};
+use std::{fs::canonicalize, path::PathBuf};
 
 pub fn absolute_existing_file(path: Option<String>, title: &str) -> Result<PathBuf> {
     absolute_path(path, title, ExistanceCheck::ExistingFile)
