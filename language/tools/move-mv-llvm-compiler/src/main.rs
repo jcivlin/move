@@ -77,6 +77,7 @@ fn main() -> anyhow::Result<()> {
                 stdlib,
                 args.dev,
                 args.test,
+                args.diagnostics,
             )?;
         }
 
