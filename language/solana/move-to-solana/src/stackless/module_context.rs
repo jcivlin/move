@@ -28,6 +28,7 @@ pub struct ModuleContext<'mm, 'up> {
     pub llvm_cx: &'up llvm::Context,
     pub llvm_module: &'up llvm::Module,
     pub llvm_builder: llvm::Builder,
+    pub llvm_di_builder: *mut llvm_sys::LLVMOpaqueDIBuilder,
     /// A map of move function id's to llvm function ids
     ///
     /// All functions that might be called are declared prior to function translation.

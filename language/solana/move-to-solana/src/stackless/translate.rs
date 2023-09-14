@@ -131,16 +131,35 @@ impl<'up> GlobalContext<'up> {
         llmod: &'this llvm::Module,
         options: &'this Options,
     ) -> ModuleContext<'up, 'this> {
-        let rtty_cx = RttyContext::new(self.env, &self.llvm_cx, llmod);
+        let Self {
+            env,
+            llvm_cx,
+            target,
+            target_machine,
+            ..
+        } = self;
+
+        let m_env = env.get_module(id);
+        let llvm_builder = llvm_cx.create_builder();
+        let modname = m_env.llvm_module_name();
+        let mut module = self.llvm_cx.create_module(&modname);
+        let llvm_di_builder = unsafe { llvm_sys::debuginfo::LLVMCreateDIBuilder(module.as_mut()) };
+        println!("{modname}");
+        dbg!(llvm_di_builder);
+        // let rtty_cx = RttyContext::new(env.get_module(id), llvm_cx, llmod);
+        // let rtty_cx = RttyContext::new(self.env, &self.llvm_cx, llmod);
+        let rtty_cx = RttyContext::new(env, &llvm_cx, llmod);
+
         ModuleContext {
-            env: self.env.get_module(id),
-            llvm_cx: &self.llvm_cx,
+            env: m_env,
+            llvm_cx,
             llvm_module: llmod,
-            llvm_builder: self.llvm_cx.create_builder(),
+            llvm_builder,
+            llvm_di_builder,
             fn_decls: BTreeMap::new(),
             expanded_functions: Vec::new(),
-            target: self.target,
-            target_machine: self.target_machine,
+            target: *target,
+            target_machine,
             options,
             rtty_cx,
         }
