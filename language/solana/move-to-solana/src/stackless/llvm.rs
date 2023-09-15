@@ -26,8 +26,11 @@ use std::{
 };
 
 pub use llvm_sys::{
+    debuginfo::{LLVMCreateDIBuilder, LLVMDisposeDIBuilder},
     LLVMAttributeFunctionIndex, LLVMAttributeIndex, LLVMAttributeReturnIndex, LLVMIntPredicate,
-    LLVMLinkage, LLVMLinkage::LLVMInternalLinkage, LLVMTypeKind::LLVMIntegerTypeKind,
+    LLVMLinkage,
+    LLVMLinkage::LLVMInternalLinkage,
+    LLVMTypeKind::LLVMIntegerTypeKind,
 };
 
 pub fn initialize_sbf() {
@@ -74,6 +77,10 @@ impl Context {
 
     pub fn create_builder(&self) -> Builder {
         unsafe { Builder(LLVMCreateBuilderInContext(self.0)) }
+    }
+
+    pub fn create_di_builder(&self, module: &mut Module) -> DIBuilder {
+        DIBuilder::new(module)
     }
 
     pub fn get_anonymous_struct_type(&self, field_tys: &[Type]) -> Type {
@@ -426,6 +433,21 @@ impl Module {
     }
 }
 
+pub struct DIBuilder(LLVMDIBuilderRef);
+
+impl Drop for DIBuilder {
+    fn drop(&mut self) {
+        unsafe {
+            LLVMDisposeDIBuilder(self.0);
+        }
+    }
+}
+
+impl DIBuilder {
+    pub fn new(module: &mut Module) -> DIBuilder {
+        unsafe { DIBuilder(LLVMCreateDIBuilder(module.as_mut())) }
+    }
+}
 pub struct Builder(LLVMBuilderRef);
 
 impl Drop for Builder {
