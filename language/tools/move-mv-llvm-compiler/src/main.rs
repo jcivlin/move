@@ -246,8 +246,12 @@ fn main() -> anyhow::Result<()> {
                 let disasm = module.disassemble();
                 println!("Module {} bytecode {}", modname, disasm);
             }
-            let mod_cx = global_cx.create_module_context(mod_id, &llmod, &options);
+            let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, &options);
+
             mod_cx.translate();
+
+            let di_builder = &mod_cx.llvm_di_builder;
+
             if args.diagnostics {
                 println!("Module {} Solana llvm ir", modname);
                 llmod.dump();
@@ -268,7 +272,13 @@ fn main() -> anyhow::Result<()> {
                         Err(err) => eprintln!("Error creating directory: {}", err),
                     }
                 }
-                llvm_write_to_file(llmod.as_mut(), args.llvm_ir, &output_file)?;
+                let llvm_mut = llmod.as_mut();
+                llvm_write_to_file(llvm_mut, args.llvm_ir, &output_file)?;
+                let debug_name = format!("{}.{}", output_file, "debug_info");
+                dbg!(&debug_name);
+
+                di_builder.create_file(debug_name);
+
                 drop(llmod);
             } else {
                 write_object_file(llmod, &llmachine, &output_file_path)?;

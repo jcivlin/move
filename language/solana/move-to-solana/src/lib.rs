@@ -401,7 +401,7 @@ fn compile(global_env: &GlobalEnv, options: &Options) -> anyhow::Result<()> {
         let modname = module.llvm_module_name();
         debug!("Generating code for module {}", modname);
         let llmod = global_cx.llvm_cx.create_module(&modname);
-        let mod_cx = global_cx.create_module_context(mod_id, &llmod, options);
+        let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, options);
         mod_cx.translate();
 
         let mut out_path = out_path.join(&modname);
