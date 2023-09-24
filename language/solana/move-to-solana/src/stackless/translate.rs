@@ -143,12 +143,10 @@ impl<'up> GlobalContext<'up> {
         let llvm_builder = llvm_cx.create_builder();
         let modname = m_env.llvm_module_name();
         let mut module = self.llvm_cx.create_module(&modname);
-        let llvm_di_builder = unsafe { llvm_sys::debuginfo::LLVMCreateDIBuilder(module.as_mut()) };
+        let llvm_di_builder = llvm_cx.create_di_builder(&mut module, options.debug);
         println!("{modname}");
-        dbg!(llvm_di_builder);
-        // let rtty_cx = RttyContext::new(env.get_module(id), llvm_cx, llmod);
-        // let rtty_cx = RttyContext::new(self.env, &self.llvm_cx, llmod);
-        let rtty_cx = RttyContext::new(env, &llvm_cx, llmod);
+        dbg!(llvm_di_builder.root());
+        let rtty_cx = RttyContext::new(env, llvm_cx, llmod);
 
         ModuleContext {
             env: m_env,
