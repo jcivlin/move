@@ -145,7 +145,7 @@ impl<'up> GlobalContext<'up> {
         let mut module = self.llvm_cx.create_module(&modname);
         let llvm_di_builder = llvm_cx.create_di_builder(&mut module, options.debug);
         println!("{modname}");
-        dbg!(llvm_di_builder.root());
+        dbg!(&llvm_di_builder);
         let rtty_cx = RttyContext::new(env, llvm_cx, llmod);
 
         ModuleContext {

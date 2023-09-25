@@ -240,6 +240,7 @@ fn main() -> anyhow::Result<()> {
                 gen_dot_cfg: args.gen_dot_cfg.clone(),
                 dot_file_path: args.dot_file_path.clone(),
                 test_signers: args.test_signers.clone(),
+                debug: args.debug.clone(),
                 ..MoveToSolanaOptions::default()
             };
             if args.diagnostics {

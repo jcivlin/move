@@ -15,6 +15,7 @@
 
 use llvm_extra_sys::*;
 use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
+use llvm_sys::debuginfo::{LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage};
 use move_core_types::u256;
 use num_traits::{PrimInt, ToPrimitive};
 
@@ -432,7 +433,7 @@ impl Module {
         Ok(())
     }
 }
-
+#[derive(Clone, Debug)]
 pub struct DIBuilder(Option<LLVMDIBuilderRef>);
 
 impl Drop for DIBuilder {
@@ -445,27 +446,26 @@ impl Drop for DIBuilder {
     }
 }
 
-/*
-fn path_to_c_params(file_path: String) -> (*const ::libc::c_char, ::libc::size_t) {
-    // Convert the String to a &str (reference to a string slice)
-    let file_path_str: &str = &file_path;
-    // Create a Path object from the &str
-    let path = std::path::Path::new(file_path_str);
-    // Extract the directory and file components
-    let directory = path.parent().expect("Failed to get directory").to_str().expect("Failed to convert to string");
-    let c_dir = std::ffi::CString::new(directory).expect("CString conversion failed");
-    // Obtain a pointer to the C string and its length
-    let dir_ptr: *const ::libc::c_char = c_dir.as_ptr();
-    let dir_len: ::libc::size_t = c_dir.as_bytes().len();
+fn str_to_c_params(s: &str) -> (*const ::libc::c_char, ::libc::size_t) {
+    // Convert the &str to a CString
+    let c_string = CString::new(s).expect("CString conversion failed");
 
-    let file = path.file_name().expect("Failed to get file name").to_str().expect("Failed to convert to string");
-    let c_filename = std::ffi::CString::new(file).expect("CString conversion failed");
     // Obtain a pointer to the C string and its length
-    let filename_ptr: *const ::libc::c_char = c_filename.as_ptr();
-    let filename_len: ::libc::size_t = c_filename.as_bytes().len();
+    let c_string_ptr: *const ::libc::c_char = c_string.as_ptr();
+    let c_string_len: ::libc::size_t = c_string.as_bytes().len() as ::libc::size_t;
 
+    (c_string_ptr, c_string_len)
 }
-*/
+
+fn path_to_c_params(file_path: String) -> (*const ::libc::c_char, ::libc::size_t, *const ::libc::c_char, ::libc::size_t) {
+    let file_path_str: &str = &file_path;
+    let path = std::path::Path::new(file_path_str);
+    let directory = path.parent().expect("Failed to get directory").to_str().expect("Failed to convert to string");
+    let (dir_ptr, dir_len) = str_to_c_params(directory);
+    let file = path.file_name().expect("Failed to get file name").to_str().expect("Failed to convert to string");
+    let (filename_ptr, filename_len) = str_to_c_params(file);
+    (filename_ptr, filename_len, dir_ptr, dir_len)
+}
 
 impl DIBuilder {
     pub fn new(module: &mut Module, debug: bool) -> DIBuilder {
@@ -482,31 +482,7 @@ impl DIBuilder {
 
     pub fn create_file(&self, file_path: String) -> Option<LLVMMetadataRef> {
         if let Some(x) = self.0 {
-            // Convert the String to a &str (reference to a string slice)
-            let file_path_str: &str = &file_path;
-            // Create a Path object from the &str
-            let path = std::path::Path::new(file_path_str);
-            // Extract the directory and file components
-            let directory = path
-                .parent()
-                .expect("Failed to get directory")
-                .to_str()
-                .expect("Failed to convert to string");
-            let c_dir = std::ffi::CString::new(directory).expect("CString conversion failed");
-            // Obtain a pointer to the C string and its length
-            let dir_ptr: *const ::libc::c_char = c_dir.as_ptr();
-            let dir_len: ::libc::size_t = c_dir.as_bytes().len();
-
-            let file = path
-                .file_name()
-                .expect("Failed to get file name")
-                .to_str()
-                .expect("Failed to convert to string");
-            let c_filename = std::ffi::CString::new(file).expect("CString conversion failed");
-            // Obtain a pointer to the C string and its length
-            let filename_ptr: *const ::libc::c_char = c_filename.as_ptr();
-            let filename_len: ::libc::size_t = c_filename.as_bytes().len();
-
+            let (filename_ptr, filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
             Some(unsafe {
                 LLVMDIBuilderCreateFile(x, filename_ptr, filename_len, dir_ptr, dir_len)
             })
@@ -514,6 +490,31 @@ impl DIBuilder {
             None
         }
     }
+
+    /*
+    pub fn create_compile_unit(&self,
+        lang: LLVMDWARFSourceLanguage,
+        file_ref: LLVMMetadataRef,
+        producer: *const ::libc::c_char,
+        producer_len: ::libc::size_t,
+        is_optimized: LLVMBool,
+        flags: *const ::libc::c_char,
+        flags_len: ::libc::size_t,
+        runtime_ver: ::libc::c_uint,
+        split_name: *const ::libc::c_char,
+        split_name_len: ::libc::size_t,
+        kind: LLVMDWARFEmissionKind,
+        dworf_id: ::libc::c_uint,
+        split_debug_inlining: LLVMBool,
+        debug_info_for_profiling: LLVMBool,
+        sysroot: *const ::libc::c_char,
+        sysroot_len: ::libc::size_t,
+        sdk: *const ::libc::c_char,
+        sdk_len: ::libc::size_t,
+    ) -> Option<LLVMMetadataRef> {
+
+    }
+    */
 }
 pub struct Builder(LLVMBuilderRef);
 
