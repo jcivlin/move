@@ -142,6 +142,7 @@ impl<'up> GlobalContext<'up> {
         let m_env = env.get_module(id);
         let llvm_builder = llvm_cx.create_builder();
         let modname = m_env.llvm_module_name();
+        dbg!(&modname);
         let mut module = self.llvm_cx.create_module(&modname);
         let llvm_di_builder = llvm_cx.create_di_builder(&mut module, options.debug);
         println!("{modname}");

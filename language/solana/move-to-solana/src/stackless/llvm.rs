@@ -14,8 +14,12 @@
 //! - Provides high-level instruction builders compatible with the stackless bytecode model.
 
 use llvm_extra_sys::*;
+use llvm_sys::debuginfo::{
+    LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
+    LLVMDWARFEmissionKind::LLVMDWARFEmissionKindNone,
+    LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+};
 use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
-use llvm_sys::debuginfo::{LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage};
 use move_core_types::u256;
 use num_traits::{PrimInt, ToPrimitive};
 
@@ -66,18 +70,51 @@ impl Drop for Context {
         }
     }
 }
-
 impl Context {
     pub fn new() -> Context {
         unsafe { Context(LLVMContextCreate()) }
     }
 
     pub fn create_module(&self, name: &str) -> Module {
-        unsafe { Module(LLVMModuleCreateWithNameInContext(name.cstr(), self.0)) }
+        let mut module = unsafe { Module(LLVMModuleCreateWithNameInContext(name.cstr(), self.0)) };
+        println!("Creating module {:?}", Self::get_module_id(module.as_mut()));
+        println!(
+            "Module Source {:?}",
+            Self::get_module_source(module.as_mut())
+        );
+        module
     }
 
     pub fn create_builder(&self) -> Builder {
         unsafe { Builder(LLVMCreateBuilderInContext(self.0)) }
+    }
+
+    fn from_raw_slice_to_string(
+        identifier_ptr: *const i8,
+        identifier_len: ::libc::size_t,
+    ) -> String {
+        let byte_slice: &[i8] =
+            unsafe { std::slice::from_raw_parts(identifier_ptr, identifier_len as usize) };
+        let byte_slice: &[u8] = unsafe {
+            std::slice::from_raw_parts(byte_slice.as_ptr() as *const u8, byte_slice.len() as usize)
+        };
+        String::from_utf8_lossy(byte_slice).to_string()
+    }
+
+    pub fn get_module_id(module: LLVMModuleRef) -> String {
+        let mut identifier_len: ::libc::size_t = 0;
+        let identifier_ptr = unsafe { LLVMGetModuleIdentifier(module, &mut identifier_len) };
+        let mod_id = Self::from_raw_slice_to_string(identifier_ptr, identifier_len);
+        println!("Module Identifier: {:?}", &mod_id);
+        mod_id
+    }
+
+    pub fn get_module_source(module: LLVMModuleRef) -> String {
+        let mut identifier_len: ::libc::size_t = 0;
+        let identifier_ptr = unsafe { LLVMGetSourceFileName(module, &mut identifier_len) };
+        let mod_source = Self::from_raw_slice_to_string(identifier_ptr, identifier_len);
+        println!("Module Source: {:?}", &mod_source);
+        mod_source
     }
 
     pub fn create_di_builder(&self, module: &mut Module, debug: bool) -> DIBuilder {
@@ -433,18 +470,17 @@ impl Module {
         Ok(())
     }
 }
-#[derive(Clone, Debug)]
-pub struct DIBuilder(Option<LLVMDIBuilderRef>);
 
-impl Drop for DIBuilder {
-    fn drop(&mut self) {
-        if let Some(x) = self.0 {
-            unsafe {
-                LLVMDisposeDIBuilder(x);
-            }
-        }
-    }
+#[derive(Clone, Debug)]
+pub struct DIBuilderCore {
+    builder_ref: LLVMDIBuilderRef,
+    builder_file: LLVMMetadataRef,
+    compiled_unit: LLVMMetadataRef,
+    compiled_module: LLVMMetadataRef,
+    module_ref: LLVMModuleRef,
 }
+#[derive(Clone, Debug)]
+pub struct DIBuilder(Option<DIBuilderCore>);
 
 fn str_to_c_params(s: &str) -> (*const ::libc::c_char, ::libc::size_t) {
     // Convert the &str to a CString
@@ -457,12 +493,27 @@ fn str_to_c_params(s: &str) -> (*const ::libc::c_char, ::libc::size_t) {
     (c_string_ptr, c_string_len)
 }
 
-fn path_to_c_params(file_path: String) -> (*const ::libc::c_char, ::libc::size_t, *const ::libc::c_char, ::libc::size_t) {
+fn path_to_c_params(
+    file_path: String,
+) -> (
+    *const ::libc::c_char,
+    ::libc::size_t,
+    *const ::libc::c_char,
+    ::libc::size_t,
+) {
     let file_path_str: &str = &file_path;
     let path = std::path::Path::new(file_path_str);
-    let directory = path.parent().expect("Failed to get directory").to_str().expect("Failed to convert to string");
+    let directory = path
+        .parent()
+        .expect("Failed to get directory")
+        .to_str()
+        .expect("Failed to convert to string");
     let (dir_ptr, dir_len) = str_to_c_params(directory);
-    let file = path.file_name().expect("Failed to get file name").to_str().expect("Failed to convert to string");
+    let file = path
+        .file_name()
+        .expect("Failed to get file name")
+        .to_str()
+        .expect("Failed to convert to string");
     let (filename_ptr, filename_len) = str_to_c_params(file);
     (filename_ptr, filename_len, dir_ptr, dir_len)
 }
@@ -470,52 +521,153 @@ fn path_to_c_params(file_path: String) -> (*const ::libc::c_char, ::libc::size_t
 impl DIBuilder {
     pub fn new(module: &mut Module, debug: bool) -> DIBuilder {
         if debug {
-            unsafe { DIBuilder(Some(LLVMCreateDIBuilder(module.as_mut()))) }
+            let module_ref = module.0;
+
+            // create builder
+            let builder_ref = unsafe { LLVMCreateDIBuilder(module_ref) };
+
+            // create builder file
+            let module_src = Context::get_module_source(module_ref);
+            let dbg_file = format!("./{}.dbg", module_src);
+            dbg!(&dbg_file);
+            let (dbg_ptr, dbg_len, dir_ptr, dir_len) = path_to_c_params(dbg_file);
+            let builder_file =
+                unsafe { LLVMDIBuilderCreateFile(builder_ref, dbg_ptr, dbg_len, dir_ptr, dir_len) };
+
+            // create compiled unit
+            let compiled_unit = Self::create_compile_unit(
+                builder_ref,
+                builder_file,
+                "move-mv-llvm-compiler".to_string(),
+                0,
+                "".to_string(),
+                0,
+            );
+
+            let module_name = Context::get_module_id(module_ref);
+            let none: String = format!("");
+            let compiled_module = Self::create_module(
+                builder_ref,
+                compiled_unit,
+                module_name,
+                none.clone(),
+                none.clone(),
+                none.clone(),
+            );
+
+            let builder_core = DIBuilderCore {
+                builder_ref,
+                builder_file,
+                compiled_unit,
+                compiled_module,
+                module_ref,
+            };
+
+            DIBuilder(Some(builder_core))
         } else {
             DIBuilder(None)
         }
     }
 
-    pub fn root(&self) -> Option<LLVMDIBuilderRef> {
-        self.0
-    }
-
-    pub fn create_file(&self, file_path: String) -> Option<LLVMMetadataRef> {
-        if let Some(x) = self.0 {
-            let (filename_ptr, filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
-            Some(unsafe {
-                LLVMDIBuilderCreateFile(x, filename_ptr, filename_len, dir_ptr, dir_len)
-            })
+    pub fn builder_ref(&self) -> Option<LLVMDIBuilderRef> {
+        if let Some(x) = &self.0 {
+            Some(x.builder_ref)
         } else {
             None
         }
     }
 
-    /*
-    pub fn create_compile_unit(&self,
-        lang: LLVMDWARFSourceLanguage,
+    pub fn create_compile_unit(
+        builder_ref: LLVMDIBuilderRef,
+        // lang: LLVMDWARFSourceLanguage,
         file_ref: LLVMMetadataRef,
-        producer: *const ::libc::c_char,
-        producer_len: ::libc::size_t,
+        producer: String, // just the name, "move_mv_llvm_compiler"
         is_optimized: LLVMBool,
-        flags: *const ::libc::c_char,
-        flags_len: ::libc::size_t,
-        runtime_ver: ::libc::c_uint,
-        split_name: *const ::libc::c_char,
-        split_name_len: ::libc::size_t,
-        kind: LLVMDWARFEmissionKind,
-        dworf_id: ::libc::c_uint,
-        split_debug_inlining: LLVMBool,
-        debug_info_for_profiling: LLVMBool,
-        sysroot: *const ::libc::c_char,
-        sysroot_len: ::libc::size_t,
-        sdk: *const ::libc::c_char,
-        sdk_len: ::libc::size_t,
-    ) -> Option<LLVMMetadataRef> {
-
+        flags: String,
+        runtime_version: ::libc::c_uint,
+    ) -> LLVMMetadataRef {
+        let (producer_ptr, producer_len) = str_to_c_params(producer.as_str());
+        let (flags_ptr, flags_len) = str_to_c_params(flags.as_str());
+        unsafe {
+            LLVMDIBuilderCreateCompileUnit(
+                builder_ref,
+                LLVMDWARFSourceLanguageRust,
+                file_ref,
+                producer_ptr,
+                producer_len,
+                is_optimized,
+                flags_ptr,
+                flags_len,
+                runtime_version,
+                std::ptr::null(),          /* *const i8 */
+                0,                         /* usize */
+                LLVMDWARFEmissionKindNone, /* LLVMDWARFEmissionKind */
+                0,                         /* u32 */
+                0,                         /* i32 */
+                0,                         /* i32 */
+                std::ptr::null(),          /* *const i8 */
+                0,                         /* usize */
+                std::ptr::null(),          /* *const i8 */
+                0,                         /* usize */
+            )
+        }
     }
-    */
+
+    pub fn create_module(
+        builder_ref: LLVMDIBuilderRef,
+        parent_scope: LLVMMetadataRef,
+        name: String,
+        config_macros: String,
+        include_path: String,
+        api_notes_file: String,
+    ) -> LLVMMetadataRef {
+        let (name_ptr, name_len) = str_to_c_params(name.as_str());
+        let (config_macros_ptr, config_macros_len) = str_to_c_params(config_macros.as_str());
+        let (include_path_ptr, include_path_len) = str_to_c_params(include_path.as_str());
+        let (api_notes_file_ptr, api_notes_file_len) = str_to_c_params(api_notes_file.as_str());
+        unsafe {
+            LLVMDIBuilderCreateModule(
+                builder_ref,
+                parent_scope,
+                name_ptr,
+                name_len,
+                config_macros_ptr,
+                config_macros_len,
+                include_path_ptr,
+                include_path_len,
+                api_notes_file_ptr,
+                api_notes_file_len,
+            )
+        }
+    }
+
+    // pub fn create_file(&self, file_path: String) -> Option<LLVMMetadataRef> {
+    //     if let Some(x) = &self.0 {
+    //         let (filename_ptr, filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
+    //         Some(unsafe {
+    //             LLVMDIBuilderCreateFile(x.builder_ref, filename_ptr, filename_len, dir_ptr, dir_len)
+    //         })
+    //     } else {
+    //         None
+    //     }
+    // }
+
+    pub fn print_module_to_file(&self, file_path: String) {
+        if let Some(x) = &self.0 {
+            let (filename_ptr, filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
+            unsafe {
+                LLVMDIBuilderCreateFile(x.builder_ref, filename_ptr, filename_len, dir_ptr, dir_len)
+            };
+        }
+    }
+
+    pub fn finalize(&self) {
+        if let Some(x) = &self.0 {
+            unsafe { LLVMDIBuilderFinalize(x.builder_ref) };
+        }
+    }
 }
+
 pub struct Builder(LLVMBuilderRef);
 
 impl Drop for Builder {

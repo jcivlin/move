@@ -251,7 +251,7 @@ fn main() -> anyhow::Result<()> {
 
             mod_cx.translate();
 
-            let di_builder = &mod_cx.llvm_di_builder;
+            mod_cx.llvm_di_builder.finalize();
 
             if args.diagnostics {
                 println!("Module {} Solana llvm ir", modname);
@@ -277,8 +277,6 @@ fn main() -> anyhow::Result<()> {
                 llvm_write_to_file(llvm_mut, args.llvm_ir, &output_file)?;
                 let debug_name = format!("{}.{}", output_file, "debug_info");
                 dbg!(&debug_name);
-
-                di_builder.create_file(debug_name);
 
                 drop(llmod);
             } else {
