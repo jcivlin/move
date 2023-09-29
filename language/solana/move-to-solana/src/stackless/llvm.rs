@@ -16,8 +16,8 @@
 use llvm_extra_sys::*;
 use llvm_sys::debuginfo::{
     LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
-    LLVMDWARFEmissionKind::LLVMDWARFEmissionKindNone,
-    LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+    LLVMDWARFEmissionKind,
+    LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageC,
 };
 use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
 use move_core_types::u256;
@@ -473,6 +473,7 @@ impl Module {
 
 #[derive(Clone, Debug)]
 pub struct DIBuilderCore {
+    module_di: LLVMModuleRef,
     builder_ref: LLVMDIBuilderRef,
     builder_file: LLVMMetadataRef,
     compiled_unit: LLVMMetadataRef,
@@ -523,14 +524,21 @@ impl DIBuilder {
         if debug {
             let module_ref = module.0;
 
-            // create builder
-            let builder_ref = unsafe { LLVMCreateDIBuilder(module_ref) };
-
-            // create builder file
-            let module_src = Context::get_module_source(module_ref);
-            let dbg_file = format!("./{}.dbg", module_src);
+            // let module_src = Context::get_module_source(module_ref);
+            let module_name = Context::get_module_id(module_ref);
+            // let dbg_file = format!("{}.debug_info", module_name);
+            let dbg_file = format!("./{}.dbg_info", module_name);
             dbg!(&dbg_file);
             let (dbg_ptr, dbg_len, dir_ptr, dir_len) = path_to_c_params(dbg_file);
+
+            let module_di = // ctx.create_module(dbg_file.as_str()).as_mut();
+                // module.0.clone();
+                unsafe { LLVMModuleCreateWithName(dbg_ptr) };
+
+            // create builder
+            let builder_ref = unsafe { LLVMCreateDIBuilder(module_di) };
+
+            // create builder file
             let builder_file =
                 unsafe { LLVMDIBuilderCreateFile(builder_ref, dbg_ptr, dbg_len, dir_ptr, dir_len) };
 
@@ -544,7 +552,6 @@ impl DIBuilder {
                 0,
             );
 
-            let module_name = Context::get_module_id(module_ref);
             let none: String = format!("");
             let compiled_module = Self::create_module(
                 builder_ref,
@@ -556,6 +563,7 @@ impl DIBuilder {
             );
 
             let builder_core = DIBuilderCore {
+                module_di,
                 builder_ref,
                 builder_file,
                 compiled_unit,
@@ -569,6 +577,13 @@ impl DIBuilder {
         }
     }
 
+    pub fn module_di(&self) -> Option<LLVMModuleRef> {
+        if let Some(x) = &self.0 {
+            Some(x.module_di)
+        } else {
+            None
+        }
+    }
     pub fn builder_ref(&self) -> Option<LLVMDIBuilderRef> {
         if let Some(x) = &self.0 {
             Some(x.builder_ref)
@@ -588,10 +603,15 @@ impl DIBuilder {
     ) -> LLVMMetadataRef {
         let (producer_ptr, producer_len) = str_to_c_params(producer.as_str());
         let (flags_ptr, flags_len) = str_to_c_params(flags.as_str());
+        let slash: String = format!("/");
+        let (slash_ptr, slash_len) = str_to_c_params(slash.as_str());
+        let none: String = format!("");
+        let (none_ptr, none_len) = str_to_c_params(none.as_str());
+
         unsafe {
             LLVMDIBuilderCreateCompileUnit(
                 builder_ref,
-                LLVMDWARFSourceLanguageRust,
+                LLVMDWARFSourceLanguageC,
                 file_ref,
                 producer_ptr,
                 producer_len,
@@ -601,14 +621,14 @@ impl DIBuilder {
                 runtime_version,
                 std::ptr::null(),          /* *const i8 */
                 0,                         /* usize */
-                LLVMDWARFEmissionKindNone, /* LLVMDWARFEmissionKind */
+                LLVMDWARFEmissionKind::LLVMDWARFEmissionKindFull, /* LLVMDWARFEmissionKind */
                 0,                         /* u32 */
                 0,                         /* i32 */
                 0,                         /* i32 */
-                std::ptr::null(),          /* *const i8 */
-                0,                         /* usize */
-                std::ptr::null(),          /* *const i8 */
-                0,                         /* usize */
+                slash_ptr, // std::ptr::null(),          /* *const i8 */
+                slash_len,                         /* usize */
+                none_ptr, // std::ptr::null(),          /* *const i8 */
+                none_len,                         /* usize */
             )
         }
     }
@@ -652,14 +672,46 @@ impl DIBuilder {
     //     }
     // }
 
-    pub fn print_module_to_file(&self, file_path: String) {
+    // pub fn print_module_to_file(&self, file_path:String) {
+    //     if let Some(x) = &self.0 {
+    //         let mut err_string = ptr::null_mut();
+    //         let (filename_ptr, filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
+    //         unsafe {
+    //             let res = LLVMPrintModuleToFile(x.module_di, filename_ptr, &mut err_string);
+    //                 // LLVMPrintModuleToString, x.module_di
+    //             if res != 0 {
+    //                 assert!(!err_string.is_null());
+    //                 let msg = CStr::from_ptr(err_string).to_string_lossy();
+    //                 print!("{msg}");
+    //                 LLVMDisposeMessage(err_string);
+    //                 // anyhow::bail!("{}", msg);
+    //             }
+    //             // LLVMDIBuilderCreateFile(x.builder_ref, filename_ptr, filename_len, dir_ptr, dir_len)
+    //         };
+    //     }
+    // }
+
+
+    pub fn print_module_to_file(&self, file_path:String) {
         if let Some(x) = &self.0 {
-            let (filename_ptr, filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
+            let mut err_string = ptr::null_mut();
+            // let (filename_ptr, _filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
+            let (filename_ptr, _filename_ptr_len) = str_to_c_params(file_path.as_str());
             unsafe {
-                LLVMDIBuilderCreateFile(x.builder_ref, filename_ptr, filename_len, dir_ptr, dir_len)
+                let res = LLVMPrintModuleToFile(x.module_di, filename_ptr, &mut err_string);
+                    // LLVMPrintModuleToString, x.module_di
+                if res != 0 {
+                    assert!(!err_string.is_null());
+                    let msg = CStr::from_ptr(err_string).to_string_lossy();
+                    print!("{msg}");
+                    LLVMDisposeMessage(err_string);
+                    // anyhow::bail!("{}", msg);
+                }
+                // LLVMDIBuilderCreateFile(x.builder_ref, filename_ptr, filename_len, dir_ptr, dir_len)
             };
         }
     }
+
 
     pub fn finalize(&self) {
         if let Some(x) = &self.0 {
