@@ -117,8 +117,8 @@ impl Context {
         mod_source
     }
 
-    pub fn create_di_builder(&self, module: &mut Module, debug: bool) -> DIBuilder {
-        DIBuilder::new(module, debug)
+    pub fn create_di_builder(&self, module: &mut Module, source: &str, debug: bool) -> DIBuilder {
+        DIBuilder::new(module, source, debug)
     }
 
     pub fn get_anonymous_struct_type(&self, field_tys: &[Type]) -> Type {
@@ -291,7 +291,16 @@ impl Module {
     }
 
     pub fn set_source_file_name(&self, name: &str) {
+        dbg!(name);
         unsafe { LLVMSetSourceFileName(self.0, name.as_ptr() as *const libc::c_char, name.len()) }
+    }
+
+    pub fn get_source_file_name(&self) -> String {
+        let mut src_len: ::libc::size_t = 0;
+        let src_ptr = unsafe { LLVMGetSourceFileName(self.0, &mut src_len) };
+        let src = Context::from_raw_slice_to_string(src_ptr, src_len);
+        dbg!(&src);
+        src
     }
 
     pub fn add_function(&self, name: &str, ty: FunctionType) -> Function {
@@ -479,6 +488,7 @@ pub struct DIBuilderCore {
     compiled_unit: LLVMMetadataRef,
     compiled_module: LLVMMetadataRef,
     module_ref: LLVMModuleRef,
+    source: String,
 }
 #[derive(Clone, Debug)]
 pub struct DIBuilder(Option<DIBuilderCore>);
@@ -520,7 +530,7 @@ fn path_to_c_params(
 }
 
 impl DIBuilder {
-    pub fn new(module: &mut Module, debug: bool) -> DIBuilder {
+    pub fn new(module: &mut Module, source: &str, debug: bool) -> DIBuilder {
         if debug {
             let module_ref = module.0;
 
@@ -569,6 +579,7 @@ impl DIBuilder {
                 compiled_unit,
                 compiled_module,
                 module_ref,
+                source: source.to_string()
             };
 
             DIBuilder(Some(builder_core))

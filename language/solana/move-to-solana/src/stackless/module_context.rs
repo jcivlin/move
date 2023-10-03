@@ -39,11 +39,13 @@ pub struct ModuleContext<'mm, 'up> {
     pub target_machine: &'up TargetMachine,
     pub options: &'up Options,
     pub rtty_cx: RttyContext<'mm, 'up>,
+    pub source: &'up str,
 }
 
 impl<'mm, 'up> ModuleContext<'mm, 'up> {
     pub fn translate(&mut self) {
         let filename = self.env.get_source_path().to_str().expect("utf-8");
+        dbg!(&filename);
         self.llvm_module.set_source_file_name(filename);
         self.llvm_module.set_target(self.target.triple());
         self.llvm_module.set_data_layout(self.target_machine);

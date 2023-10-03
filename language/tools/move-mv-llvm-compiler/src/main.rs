@@ -247,7 +247,8 @@ fn main() -> anyhow::Result<()> {
                 let disasm = module.disassemble();
                 println!("Module {} bytecode {}", modname, disasm);
             }
-            let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, &options);
+            let mod_src = module.get_source_path().to_str().expect("utf-8");
+            let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, &options, mod_src);
 
             mod_cx.translate();
 
