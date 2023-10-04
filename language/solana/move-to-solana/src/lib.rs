@@ -401,9 +401,8 @@ fn compile(global_env: &GlobalEnv, options: &Options) -> anyhow::Result<()> {
         let modname = module.llvm_module_name();
         debug!("Generating code for module {}", modname);
         let llmod = global_cx.llvm_cx.create_module(&modname);
-        let mod_source = module.get_source_path().to_str().expect("utf-8");
-        dbg!(mod_source);
-        let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, options, mod_source);
+        let module_source_path = module.get_source_path().to_str().expect("utf-8");
+        let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, options, module_source_path);
         mod_cx.translate();
 
         let mut out_path = out_path.join(&modname);
