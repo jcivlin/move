@@ -17,7 +17,7 @@ use llvm_extra_sys::*;
 use llvm_sys::debuginfo::{
     LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
     LLVMDWARFEmissionKind,
-    LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageC,
+    LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
 };
 use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
 use move_core_types::u256;
@@ -76,12 +76,13 @@ impl Context {
     }
 
     pub fn create_module(&self, name: &str) -> Module {
-        let mut module = unsafe { Module(LLVMModuleCreateWithNameInContext(name.cstr(), self.0)) };
-        println!("Creating module {:?}", Self::get_module_id(module.as_mut()));
-        println!(
-            "Module Source {:?}",
-            Self::get_module_source(module.as_mut())
-        );
+        let module = unsafe { Module(LLVMModuleCreateWithNameInContext(name.cstr(), self.0)) };
+        // let mut module = unsafe { Module(LLVMModuleCreateWithNameInContext(name.cstr(), self.0)) };
+        // println!("Creating module {:?}", Self::get_module_id(module.as_mut()));
+        // println!(
+        //     "Module Source {:?}",
+        //     Self::get_module_source(module.as_mut())
+        // );
         module
     }
 
@@ -90,29 +91,32 @@ impl Context {
     }
 
     fn from_raw_slice_to_string(
-        identifier_ptr: *const i8,
-        identifier_len: ::libc::size_t,
+        raw_ptr: *const i8,
+        raw_len: ::libc::size_t,
     ) -> String {
         let byte_slice: &[i8] =
-            unsafe { std::slice::from_raw_parts(identifier_ptr, identifier_len as usize) };
+            unsafe { std::slice::from_raw_parts(raw_ptr, raw_len as usize) };
         let byte_slice: &[u8] = unsafe {
             std::slice::from_raw_parts(byte_slice.as_ptr() as *const u8, byte_slice.len() as usize)
         };
-        String::from_utf8_lossy(byte_slice).to_string()
+        // dbg!(byte_slice);
+        let byte_string = String::from_utf8_lossy(byte_slice).to_string();
+        // dbg!(&byte_string);
+        byte_string
     }
 
     pub fn get_module_id(module: LLVMModuleRef) -> String {
-        let mut identifier_len: ::libc::size_t = 0;
-        let identifier_ptr = unsafe { LLVMGetModuleIdentifier(module, &mut identifier_len) };
-        let mod_id = Self::from_raw_slice_to_string(identifier_ptr, identifier_len);
+        let mut mod_len: ::libc::size_t = 0;
+        let mod_ptr = unsafe { LLVMGetModuleIdentifier(module, &mut mod_len) };
+        let mod_id = Self::from_raw_slice_to_string(mod_ptr, mod_len);
         println!("Module Identifier: {:?}", &mod_id);
         mod_id
     }
 
     pub fn get_module_source(module: LLVMModuleRef) -> String {
-        let mut identifier_len: ::libc::size_t = 0;
-        let identifier_ptr = unsafe { LLVMGetSourceFileName(module, &mut identifier_len) };
-        let mod_source = Self::from_raw_slice_to_string(identifier_ptr, identifier_len);
+        let mut mod_len: ::libc::size_t = 0;
+        let mod_ptr = unsafe { LLVMGetSourceFileName(module, &mut mod_len) };
+        let mod_source = Self::from_raw_slice_to_string(mod_ptr, mod_len);
         println!("Module Source: {:?}", &mod_source);
         mod_source
     }
@@ -494,37 +498,58 @@ pub struct DIBuilderCore {
 pub struct DIBuilder(Option<DIBuilderCore>);
 
 fn str_to_c_params(s: &str) -> (*const ::libc::c_char, ::libc::size_t) {
-    // Convert the &str to a CString
-    let c_string = CString::new(s).expect("CString conversion failed");
+    // // Convert the &str to a CString
+    // let c_string = CString::new(s).expect("CString conversion failed");
 
-    // Obtain a pointer to the C string and its length
-    let c_string_ptr: *const ::libc::c_char = c_string.as_ptr();
-    let c_string_len: ::libc::size_t = c_string.as_bytes().len() as ::libc::size_t;
+    // // Obtain a pointer to the C string and its length
+    // let c_string_ptr: *const ::libc::c_char = c_string.as_ptr();
+    // let c_string_len: ::libc::size_t = c_string.as_bytes().len() as ::libc::size_t;
 
-    (c_string_ptr, c_string_len)
+    // (c_string_ptr, c_string_len)
+    (s.as_ptr() as *const libc::c_char, s.len())
+}
+
+fn string_to_c_params(s: String) -> (*const ::libc::c_char, ::libc::size_t) {
+    // Convert the Rust String to a CString (null-terminated C-style string)
+    let cstr = match CString::new(s) {
+        Ok(cstr) => cstr,
+        Err(_) => CString::new("").expect("Failed to create an empty CString"),
+    };
+
+    // Get a pointer to the underlying bytes of the CString
+    let cstr_ptr = cstr.as_ptr();
+
+    // Get the length of the string (excluding the null terminator)
+    let len = cstr.as_bytes().len();
+
+    // The CString will be automatically deallocated when it goes out of scope
+
+    (cstr_ptr, len)
 }
 
 fn path_to_c_params(
-    file_path: String,
+    // file_path: String,
+    file_path: &str,
 ) -> (
     *const ::libc::c_char,
     ::libc::size_t,
     *const ::libc::c_char,
     ::libc::size_t,
 ) {
-    let file_path_str: &str = &file_path;
-    let path = std::path::Path::new(file_path_str);
+    let path = std::path::Path::new(&file_path);
     let directory = path
         .parent()
         .expect("Failed to get directory")
         .to_str()
         .expect("Failed to convert to string");
+    dbg!(directory);
     let (dir_ptr, dir_len) = str_to_c_params(directory);
     let file = path
         .file_name()
         .expect("Failed to get file name")
         .to_str()
         .expect("Failed to convert to string");
+    dbg!(file);
     let (filename_ptr, filename_len) = str_to_c_params(file);
     (filename_ptr, filename_len, dir_ptr, dir_len)
 }
@@ -535,22 +560,35 @@ impl DIBuilder {
             let module_ref = module.0;
 
             // let module_src = Context::get_module_source(module_ref);
-            let module_name = Context::get_module_id(module_ref);
-            // let dbg_file = format!("{}.debug_info", module_name);
-            let dbg_file = format!("./{}.dbg_info", module_name);
-            dbg!(&dbg_file);
-            let (dbg_ptr, dbg_len, dir_ptr, dir_len) = path_to_c_params(dbg_file);
+            let module_ref_name = Context::get_module_id(module_ref);
+            dbg!(&module_ref_name);
 
-            let module_di = // ctx.create_module(dbg_file.as_str()).as_mut();
-                // module.0.clone();
-                unsafe { LLVMModuleCreateWithName(dbg_ptr) };
+            // let source = source.to_string();
+
+            // create module
+            let module_name = format!("{}.dbg_info", module_ref_name);
+            dbg!(&module_name);
+            let (mod_nm_ptr, mod_nm_len) = str_to_c_params(module_name.as_str());
+            let module_di = unsafe { LLVMModuleCreateWithName(mod_nm_ptr) };
+
+            // set source to created module
+            dbg!(source);
+            let (src_ptr, src_len) = str_to_c_params(source);
+            unsafe { LLVMSetSourceFileName(module_di, src_ptr, src_len) };
+            // check the name
+            let mut src_len: ::libc::size_t = 0;
+            let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
+            let src0 = Context::from_raw_slice_to_string(src_ptr, src_len);
+            dbg!(&src0);
 
             // create builder
             let builder_ref = unsafe { LLVMCreateDIBuilder(module_di) };
+            // let builder_ref = unsafe { LLVMCreateDIBuilder(module_ref) };
 
             // create builder file
+            let (mod_nm_ptr, mod_nm_len, dir_ptr, dir_len) = path_to_c_params(source);
             let builder_file =
-                unsafe { LLVMDIBuilderCreateFile(builder_ref, dbg_ptr, dbg_len, dir_ptr, dir_len) };
+                unsafe { LLVMDIBuilderCreateFile(builder_ref, mod_nm_ptr, mod_nm_len, dir_ptr, dir_len) };
 
             // create compiled unit
             let compiled_unit = Self::create_compile_unit(
@@ -561,6 +599,12 @@ impl DIBuilder {
                 "".to_string(),
                 0,
             );
+            // check the name
+            let mut src_len: ::libc::size_t = 0;
+            let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
+            // let src_ptr = unsafe { LLVMGetSourceFileName(module_ref, &mut src_len) };
+            let src1 = Context::from_raw_slice_to_string(src_ptr, src_len);
+            dbg!(&src1);
 
             let none: String = format!("");
             let compiled_module = Self::create_module(
@@ -579,7 +623,7 @@ impl DIBuilder {
                 compiled_unit,
                 compiled_module,
                 module_ref,
-                source: source.to_string()
+                source: source.to_string(),
             };
 
             DIBuilder(Some(builder_core))
@@ -615,14 +659,16 @@ impl DIBuilder {
         let (producer_ptr, producer_len) = str_to_c_params(producer.as_str());
         let (flags_ptr, flags_len) = str_to_c_params(flags.as_str());
         let slash: String = format!("/");
+        //let (slash_ptr, slash_len) = str_to_c_params(slash.as_str());
         let (slash_ptr, slash_len) = str_to_c_params(slash.as_str());
         let none: String = format!("");
+        // let (none_ptr, none_len) = str_to_c_params(none.as_str());
         let (none_ptr, none_len) = str_to_c_params(none.as_str());
 
         unsafe {
             LLVMDIBuilderCreateCompileUnit(
                 builder_ref,
-                LLVMDWARFSourceLanguageC,
+                LLVMDWARFSourceLanguageRust,
                 file_ref,
                 producer_ptr,
                 producer_len,
@@ -656,6 +702,10 @@ impl DIBuilder {
         let (config_macros_ptr, config_macros_len) = str_to_c_params(config_macros.as_str());
         let (include_path_ptr, include_path_len) = str_to_c_params(include_path.as_str());
         let (api_notes_file_ptr, api_notes_file_len) = str_to_c_params(api_notes_file.as_str());
+        // let (name_ptr, name_len) = string_to_c_params(name);
+        // let (config_macros_ptr, config_macros_len) = string_to_c_params(config_macros);
+        // let (include_path_ptr, include_path_len) = string_to_c_params(include_path);
+        // let (api_notes_file_ptr, api_notes_file_len) = string_to_c_params(api_notes_file);
         unsafe {
             LLVMDIBuilderCreateModule(
                 builder_ref,
@@ -707,7 +757,7 @@ impl DIBuilder {
         if let Some(x) = &self.0 {
             let mut err_string = ptr::null_mut();
             // let (filename_ptr, _filename_len, dir_ptr, dir_len) = path_to_c_params(file_path);
-            let (filename_ptr, _filename_ptr_len) = str_to_c_params(file_path.as_str());
+            let (filename_ptr, _filename_ptr_len) = string_to_c_params(file_path);
             unsafe {
                 let res = LLVMPrintModuleToFile(x.module_di, filename_ptr, &mut err_string);
                     // LLVMPrintModuleToString, x.module_di
