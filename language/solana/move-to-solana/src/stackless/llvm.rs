@@ -16,8 +16,7 @@
 use llvm_extra_sys::*;
 use llvm_sys::debuginfo::{
     LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
-    LLVMDWARFEmissionKind,
-    LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+    LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
 };
 use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
 use move_core_types::u256;
@@ -81,30 +80,6 @@ impl Context {
 
     pub fn create_builder(&self) -> Builder {
         unsafe { Builder(LLVMCreateBuilderInContext(self.0)) }
-    }
-
-    fn from_raw_slice_to_string(
-        raw_ptr: *const i8,
-        raw_len: ::libc::size_t,
-    ) -> String {
-        let byte_slice: &[i8] =
-            unsafe { std::slice::from_raw_parts(raw_ptr, raw_len as usize) };
-        let byte_slice: &[u8] = unsafe {
-            std::slice::from_raw_parts(byte_slice.as_ptr() as *const u8, byte_slice.len() as usize)
-        };
-        String::from_utf8_lossy(byte_slice).to_string()
-    }
-
-    pub fn get_module_id(module: LLVMModuleRef) -> String {
-        let mut mod_len: ::libc::size_t = 0;
-        let mod_ptr = unsafe { LLVMGetModuleIdentifier(module, &mut mod_len) };
-        Self::from_raw_slice_to_string(mod_ptr, mod_len)
-    }
-
-    pub fn get_module_source(module: LLVMModuleRef) -> String {
-        let mut mod_len: ::libc::size_t = 0;
-        let mod_ptr = unsafe { LLVMGetSourceFileName(module, &mut mod_len) };
-        Self::from_raw_slice_to_string(mod_ptr, mod_len)
     }
 
     pub fn create_di_builder(&self, module: &mut Module, source: &str, debug: bool) -> DIBuilder {
@@ -280,10 +255,22 @@ impl Module {
         }
     }
 
+    pub fn get_module_id(&self) -> String {
+        let mut mod_len: ::libc::size_t = 0;
+        let mod_ptr = unsafe { LLVMGetModuleIdentifier(self.0, &mut mod_len) };
+        from_raw_slice_to_string(mod_ptr, mod_len)
+    }
+
+    pub fn get_module_source(&self) -> String {
+        let mut mod_len: ::libc::size_t = 0;
+        let mod_ptr = unsafe { LLVMGetSourceFileName(self.0, &mut mod_len) };
+        from_raw_slice_to_string(mod_ptr, mod_len)
+    }
+
     pub fn get_source_file_name(&self) -> String {
         let mut src_len: ::libc::size_t = 0;
         let src_ptr = unsafe { LLVMGetSourceFileName(self.0, &mut src_len) };
-        Context::from_raw_slice_to_string(src_ptr, src_len)
+        from_raw_slice_to_string(src_ptr, src_len)
     }
 
     pub fn set_source_file_name(&self, name: &str) {
@@ -471,11 +458,12 @@ impl Module {
 pub struct DIBuilderCore {
     module_di: LLVMModuleRef,
     builder_ref: LLVMDIBuilderRef,
+    // fields below reserved for future usage
     builder_file: LLVMMetadataRef,
     compiled_unit: LLVMMetadataRef,
     compiled_module: LLVMMetadataRef,
     module_ref: LLVMModuleRef,
-    source: String,
+    module_source: String,
 }
 #[derive(Clone, Debug)]
 pub struct DIBuilder(Option<DIBuilderCore>);
@@ -518,12 +506,19 @@ fn path_to_c_params(
     (filename_ptr, filename_len, dir_ptr, dir_len)
 }
 
+fn from_raw_slice_to_string(raw_ptr: *const i8, raw_len: ::libc::size_t) -> String {
+    let byte_slice: &[i8] = unsafe { std::slice::from_raw_parts(raw_ptr, raw_len) };
+    let byte_slice: &[u8] =
+        unsafe { std::slice::from_raw_parts(byte_slice.as_ptr() as *const u8, byte_slice.len()) };
+    String::from_utf8_lossy(byte_slice).to_string()
+}
+
 impl DIBuilder {
     pub fn new(module: &mut Module, source: &str, debug: bool) -> DIBuilder {
         if debug {
             let module_ref = module.0;
 
-            let module_ref_name = Context::get_module_id(module_ref);
+            let module_ref_name = module.get_module_id();
 
             // create module
             let module_name = format!("{}.dbg_info", module_ref_name);
@@ -536,7 +531,7 @@ impl DIBuilder {
             // check the name
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
-            let src0 = Context::from_raw_slice_to_string(src_ptr, src_len);
+            let src0 = from_raw_slice_to_string(src_ptr, src_len);
             dbg!(&src0);
 
             // create builder
@@ -544,8 +539,9 @@ impl DIBuilder {
 
             // create builder file
             let (mod_nm_ptr, mod_nm_len, dir_ptr, dir_len) = path_to_c_params(source);
-            let builder_file =
-                unsafe { LLVMDIBuilderCreateFile(builder_ref, mod_nm_ptr, mod_nm_len, dir_ptr, dir_len) };
+            let builder_file = unsafe {
+                LLVMDIBuilderCreateFile(builder_ref, mod_nm_ptr, mod_nm_len, dir_ptr, dir_len)
+            };
 
             // create compiled unit
             let compiled_unit = Self::create_compile_unit(
@@ -559,10 +555,10 @@ impl DIBuilder {
             // check the name
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
-            let src1 = Context::from_raw_slice_to_string(src_ptr, src_len);
+            let src1 = from_raw_slice_to_string(src_ptr, src_len);
             dbg!(&src1);
 
-            let none: String = format!("");
+            let none = String::new();
             let compiled_module = Self::create_module(
                 builder_ref,
                 compiled_unit,
@@ -579,7 +575,7 @@ impl DIBuilder {
                 compiled_unit,
                 compiled_module,
                 module_ref,
-                source: source.to_string(),
+                module_source: source.to_string(),
             };
 
             DIBuilder(Some(builder_core))
@@ -589,18 +585,31 @@ impl DIBuilder {
     }
 
     pub fn module_di(&self) -> Option<LLVMModuleRef> {
-        if let Some(x) = &self.0 {
-            Some(x.module_di)
-        } else {
-            None
-        }
+        self.0.as_ref().map(|x| x.module_di)
     }
+
     pub fn builder_ref(&self) -> Option<LLVMDIBuilderRef> {
-        if let Some(x) = &self.0 {
-            Some(x.builder_ref)
-        } else {
-            None
-        }
+        self.0.as_ref().map(|x| x.builder_ref)
+    }
+
+    pub fn builder_file(&self) -> Option<LLVMMetadataRef> {
+        self.0.as_ref().map(|x| x.builder_file)
+    }
+
+    pub fn compiled_unit(&self) -> Option<LLVMMetadataRef> {
+        self.0.as_ref().map(|x| x.compiled_unit)
+    }
+
+    pub fn compiled_module(&self) -> Option<LLVMMetadataRef> {
+        self.0.as_ref().map(|x| x.compiled_module)
+    }
+
+    pub fn module_ref(&self) -> Option<LLVMModuleRef> {
+        self.0.as_ref().map(|x| x.module_ref)
+    }
+
+    pub fn module_source(&self) -> Option<String> {
+        self.0.as_ref().map(|x| x.module_source.clone())
     }
 
     pub fn create_compile_unit(
@@ -613,9 +622,9 @@ impl DIBuilder {
     ) -> LLVMMetadataRef {
         let (producer_ptr, producer_len) = str_to_c_params(producer.as_str());
         let (flags_ptr, flags_len) = str_to_c_params(flags.as_str());
-        let slash: String = format!("/");
+        let slash = "/".to_string();
         let (slash_ptr, slash_len) = str_to_c_params(slash.as_str());
-        let none: String = format!("");
+        let none = String::new();
         let (none_ptr, none_len) = str_to_c_params(none.as_str());
 
         unsafe {
@@ -629,16 +638,16 @@ impl DIBuilder {
                 flags_ptr,
                 flags_len,
                 runtime_version,
-                std::ptr::null(),   /* *const i8 */
-                0,               /* usize */
+                std::ptr::null(), /* *const i8 */
+                0,                /* usize */
                 LLVMDWARFEmissionKind::LLVMDWARFEmissionKindFull,
-                0,                      /* u32 */
+                0,         /* u32 */
                 0,         /* i32 */
-                0,      /* i32 */
-                slash_ptr,            /* *const i8 */
-                slash_len,         /* usize */
-                none_ptr,                 /* *const i8 */
-                none_len,              /* usize */
+                0,         /* i32 */
+                slash_ptr, /* *const i8 */
+                slash_len, /* usize */
+                none_ptr,  /* *const i8 */
+                none_len,  /* usize */
             )
         }
     }
@@ -671,7 +680,7 @@ impl DIBuilder {
         }
     }
 
-    pub fn print_module_to_file(&self, file_path:String) {
+    pub fn print_module_to_file(&self, file_path: String) {
         if let Some(x) = &self.0 {
             let mut err_string = ptr::null_mut();
             let (filename_ptr, _filename_ptr_len) = string_to_c_params(file_path);
@@ -686,7 +695,6 @@ impl DIBuilder {
             };
         }
     }
-
 
     pub fn finalize(&self) {
         if let Some(x) = &self.0 {
