@@ -543,31 +543,68 @@ impl DIBuilder {
                 LLVMDIBuilderCreateFile(builder_ref, mod_nm_ptr, mod_nm_len, dir_ptr, dir_len)
             };
 
-            // create compiled unit
-            let compiled_unit = Self::create_compile_unit(
-                builder_ref,
-                builder_file,
-                "move-mv-llvm-compiler".to_string(),
-                0,
-                "".to_string(),
-                0,
-            );
+            let producer = "move-mv-llvm-compiler".to_string();
+            let (producer_ptr, producer_len) = str_to_c_params(producer.as_str());
+            let flags = "".to_string();
+            let (flags_ptr, flags_len) = str_to_c_params(flags.as_str());
+            let slash = "/".to_string();
+            let (slash_ptr, slash_len) = str_to_c_params(slash.as_str());
+            let none = String::new();
+            let (none_ptr, none_len) = str_to_c_params(none.as_str());
+
+            let compiled_unit = unsafe {
+                LLVMDIBuilderCreateCompileUnit(
+                    builder_ref,
+                    LLVMDWARFSourceLanguageRust,
+                    builder_file,
+                    producer_ptr,
+                    producer_len,
+                    0, /* is_optimized */
+                    flags_ptr,
+                    flags_len,
+                    0,                /* runtime_version */
+                    std::ptr::null(), /* *const i8 */
+                    0,                /* usize */
+                    LLVMDWARFEmissionKind::LLVMDWARFEmissionKindFull,
+                    0,         /* u32 */
+                    0,         /* i32 */
+                    0,         /* i32 */
+                    slash_ptr, /* *const i8 */
+                    slash_len, /* usize */
+                    none_ptr,  /* *const i8 */
+                    none_len,  /* usize */
+                )
+            };
+
             // check the name
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
             let src1 = from_raw_slice_to_string(src_ptr, src_len);
             dbg!(&src1);
 
-            let none = String::new();
-            let compiled_module = Self::create_module(
-                builder_ref,
-                compiled_unit,
-                module_name,
-                none.clone(),
-                none.clone(),
-                none.clone(),
-            );
+            // create compiled unit
+            let parent_scope = compiled_unit;
+            let name = module_name;
+            let (name_ptr, name_len) = str_to_c_params(name.as_str());
+            let (config_macros_ptr, config_macros_len) = str_to_c_params(none.as_str());
+            let (include_path_ptr, include_path_len) = str_to_c_params(none.as_str());
+            let (api_notes_file_ptr, api_notes_file_len) = str_to_c_params(none.as_str());
+            let compiled_module = unsafe {
+                LLVMDIBuilderCreateModule(
+                    builder_ref,
+                    parent_scope,
+                    name_ptr,
+                    name_len,
+                    config_macros_ptr,
+                    config_macros_len,
+                    include_path_ptr,
+                    include_path_len,
+                    api_notes_file_ptr,
+                    api_notes_file_len,
+                )
+            };
 
+            // store all control fields for future usage
             let builder_core = DIBuilderCore {
                 module_di,
                 builder_ref,
@@ -610,74 +647,6 @@ impl DIBuilder {
 
     pub fn module_source(&self) -> Option<String> {
         self.0.as_ref().map(|x| x.module_source.clone())
-    }
-
-    pub fn create_compile_unit(
-        builder_ref: LLVMDIBuilderRef,
-        file_ref: LLVMMetadataRef,
-        producer: String, // just the name, "move_mv_llvm_compiler"
-        is_optimized: LLVMBool,
-        flags: String,
-        runtime_version: ::libc::c_uint,
-    ) -> LLVMMetadataRef {
-        let (producer_ptr, producer_len) = str_to_c_params(producer.as_str());
-        let (flags_ptr, flags_len) = str_to_c_params(flags.as_str());
-        let slash = "/".to_string();
-        let (slash_ptr, slash_len) = str_to_c_params(slash.as_str());
-        let none = String::new();
-        let (none_ptr, none_len) = str_to_c_params(none.as_str());
-
-        unsafe {
-            LLVMDIBuilderCreateCompileUnit(
-                builder_ref,
-                LLVMDWARFSourceLanguageRust,
-                file_ref,
-                producer_ptr,
-                producer_len,
-                is_optimized,
-                flags_ptr,
-                flags_len,
-                runtime_version,
-                std::ptr::null(), /* *const i8 */
-                0,                /* usize */
-                LLVMDWARFEmissionKind::LLVMDWARFEmissionKindFull,
-                0,         /* u32 */
-                0,         /* i32 */
-                0,         /* i32 */
-                slash_ptr, /* *const i8 */
-                slash_len, /* usize */
-                none_ptr,  /* *const i8 */
-                none_len,  /* usize */
-            )
-        }
-    }
-
-    pub fn create_module(
-        builder_ref: LLVMDIBuilderRef,
-        parent_scope: LLVMMetadataRef,
-        name: String,
-        config_macros: String,
-        include_path: String,
-        api_notes_file: String,
-    ) -> LLVMMetadataRef {
-        let (name_ptr, name_len) = str_to_c_params(name.as_str());
-        let (config_macros_ptr, config_macros_len) = str_to_c_params(config_macros.as_str());
-        let (include_path_ptr, include_path_len) = str_to_c_params(include_path.as_str());
-        let (api_notes_file_ptr, api_notes_file_len) = str_to_c_params(api_notes_file.as_str());
-        unsafe {
-            LLVMDIBuilderCreateModule(
-                builder_ref,
-                parent_scope,
-                name_ptr,
-                name_len,
-                config_macros_ptr,
-                config_macros_len,
-                include_path_ptr,
-                include_path_len,
-                api_notes_file_ptr,
-                api_notes_file_len,
-            )
-        }
     }
 
     pub fn print_module_to_file(&self, file_path: String) {
