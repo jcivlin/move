@@ -1,5 +1,5 @@
 #[test_only]
-module std::fp32_tests {
+module std::fixed_point32_tests {
     use std::fixed_point32;
 
     #[test]
