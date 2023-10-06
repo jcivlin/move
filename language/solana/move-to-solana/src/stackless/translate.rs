@@ -141,11 +141,9 @@ impl<'up> GlobalContext<'up> {
         let m_env = env.get_module(id);
         let llvm_builder = llvm_cx.create_builder();
         let modname = m_env.llvm_module_name();
-        dbg!(&modname);
+        debug!(target: "dwarf", "Create DWARF for module {:#?} with source {:#?}", modname, source);
         let mut module = self.llvm_cx.create_module(&modname);
-        dbg!(source);
         let llvm_di_builder = llvm_cx.create_di_builder(&mut module, source, options.debug);
-        dbg!(&llvm_di_builder);
         let rtty_cx = RttyContext::new(self.env, &self.llvm_cx, llmod);
         ModuleContext {
             env: self.env.get_module(id),

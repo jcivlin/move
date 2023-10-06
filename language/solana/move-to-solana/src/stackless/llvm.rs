@@ -540,7 +540,6 @@ impl DIBuilder {
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
             let src0 = from_raw_slice_to_string(src_ptr, src_len);
-            dbg!(&src0);
 
             // create builder
             let builder_ref = unsafe { LLVMCreateDIBuilder(module_di) };
@@ -588,7 +587,7 @@ impl DIBuilder {
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
             let src1 = from_raw_slice_to_string(src_ptr, src_len);
-            dbg!(&src1);
+            assert!(src0.eq(&src1), "Error in setting/getting source name");
 
             // create compiled unit
             let parent_scope = compiled_unit;
