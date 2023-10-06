@@ -255,7 +255,13 @@ fn main() -> anyhow::Result<()> {
             // let mod_cx =
             //     global_cx.create_module_context(mod_id, &llmod, &entrypoint_generator, &options);
             let mod_src = module.get_source_path().to_str().expect("utf-8");
-            let mod_cx = &mut global_cx.create_module_context(mod_id, &llmod, &entrypoint_generator, &options, mod_src);
+            let mod_cx = &mut global_cx.create_module_context(
+                mod_id,
+                &llmod,
+                &entrypoint_generator,
+                &options,
+                mod_src,
+            );
             mod_cx.translate();
 
             mod_cx.llvm_di_builder.finalize();

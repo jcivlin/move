@@ -61,12 +61,12 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
             let fn_env = self.env.env.get_function(fn_qiid.to_qualified_id());
             assert!(!fn_env.is_native());
             self.rtty_cx.reset_func(fn_qiid);
-            let fn_cx = self.create_fn_context(fn_env, &self, &fn_qiid.inst);
+            let fn_cx = self.create_fn_context(fn_env, self, &fn_qiid.inst);
             fn_cx.translate();
         }
 
         if !self.env.is_script_module() {
-            self.entrypoint_generator.add_entries(&self);
+            self.entrypoint_generator.add_entries(self);
         }
 
         self.llvm_module.verify();

@@ -136,11 +136,7 @@ impl<'up> GlobalContext<'up> {
         options: &'this Options,
         source: &'this str,
     ) -> ModuleContext<'up, 'this> {
-        let Self {
-            env,
-            llvm_cx,
-            ..
-        } = self;
+        let Self { env, llvm_cx, .. } = self;
 
         let m_env = env.get_module(id);
         let llvm_builder = llvm_cx.create_builder();

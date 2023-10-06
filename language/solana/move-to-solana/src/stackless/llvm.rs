@@ -14,11 +14,17 @@
 //! - Provides high-level instruction builders compatible with the stackless bytecode model.
 
 use llvm_extra_sys::*;
-use llvm_sys::debuginfo::{
-    LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
-    LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+use llvm_sys::{
+    core::*,
+    debuginfo::{
+        LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
+        LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+    },
+    prelude::*,
+    target::*,
+    target_machine::*,
+    LLVMOpcode, LLVMUnnamedAddr,
 };
-use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
 use move_core_types::u256;
 use num_traits::{PrimInt, ToPrimitive};
 
