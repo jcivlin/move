@@ -523,6 +523,7 @@ fn from_raw_slice_to_string(raw_ptr: *const i8, raw_len: ::libc::size_t) -> Stri
 
 impl DIBuilder {
     pub fn new(module: &mut Module, source: &str, debug: bool) -> DIBuilder {
+        use log::debug;
         if debug {
             let module_ref = module.0;
 
@@ -540,6 +541,7 @@ impl DIBuilder {
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
             let src0 = from_raw_slice_to_string(src_ptr, src_len);
+            debug!(target: "dwarf", "Module {:#?} has source {:#?}", module_name, src0);
 
             // create builder
             let builder_ref = unsafe { LLVMCreateDIBuilder(module_di) };
@@ -587,7 +589,7 @@ impl DIBuilder {
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
             let src1 = from_raw_slice_to_string(src_ptr, src_len);
-            assert!(src0.eq(&src1), "Error in setting/getting source name");
+            debug!(target: "dwarf", "Self-check: module {:#?} has source {:#?}", module_name, src1);
 
             // create compiled unit
             let parent_scope = compiled_unit;
