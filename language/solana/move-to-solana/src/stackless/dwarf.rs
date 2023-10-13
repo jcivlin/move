@@ -23,6 +23,7 @@ use llvm_sys::{
 };
 
 use std::{
+    env,
     ffi::{CStr, CString},
     ptr,
 };
@@ -96,22 +97,42 @@ pub fn from_raw_slice_to_string(raw_ptr: *const i8, raw_len: ::libc::size_t) -> 
     String::from_utf8_lossy(byte_slice).to_string()
 }
 
+fn relative_to_absolute(relative_path: &str) -> std::io::Result<String> {
+    let current_dir = env::current_dir()?;
+    let absolute_path = current_dir.join(relative_path);
+
+    Ok(absolute_path.to_string_lossy().to_string())
+}
+
 impl DIBuilder {
     pub fn new(module: &mut Module, source: &str, debug: bool) -> DIBuilder {
         use log::debug;
         if debug {
             let module_ref_name = module.get_module_id();
+            dbg!(&module_ref_name);
             let module_ref = module.as_mut();
 
             // create module
-            let module_name = format!("{}.dbg_info", module_ref_name);
-            let (mod_nm_ptr, _mod_nm_len) = str_to_c_params(module_name.as_str());
-            let module_di = unsafe { LLVMModuleCreateWithName(mod_nm_ptr) };
+            let module_name = module_ref_name + ".dbg_info";
+            let (mod_nm_ptr, mut mod_nm_len) = str_to_c_params(&module_name);
+            dbg!(mod_nm_len);
+            let module_di = unsafe { LLVMModuleCreateWithName(mod_nm_ptr as *const ::libc::c_char) };
+
+            // check dbg module name
+            let mod_nm_ptr = unsafe { LLVMGetModuleIdentifier(module_di, &mut mod_nm_len) };
+            let module_di_name = from_raw_slice_to_string(mod_nm_ptr, mod_nm_len);
+            dbg!(mod_nm_len);
+            dbg!(&module_di_name);
+            debug!(target: "dwarf", "Created dbg module {:#?}", &module_di_name);
 
             // set source to created module
-            let (src_ptr, src_len) = str_to_c_params(source);
+            dbg!(source);
+            let source = relative_to_absolute(source).expect("Must be the legal path");
+            dbg!(&source);
+            let (src_ptr, src_len) = str_to_c_params(&source);
             unsafe { LLVMSetSourceFileName(module_di, src_ptr, src_len) };
-            // check the name
+
+            // check the source name
             let mut src_len: ::libc::size_t = 0;
             let src_ptr = unsafe { LLVMGetSourceFileName(module_di, &mut src_len) };
             let src0 = from_raw_slice_to_string(src_ptr, src_len);
@@ -121,7 +142,7 @@ impl DIBuilder {
             let builder_ref = unsafe { LLVMCreateDIBuilder(module_di) };
 
             // create builder file
-            let (mod_nm_ptr, mod_nm_len, dir_ptr, dir_len) = path_to_c_params(source);
+            let (mod_nm_ptr, mod_nm_len, dir_ptr, dir_len) = path_to_c_params(&source);
             let builder_file = unsafe {
                 LLVMDIBuilderCreateFile(builder_ref, mod_nm_ptr, mod_nm_len, dir_ptr, dir_len)
             };

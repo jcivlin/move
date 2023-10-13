@@ -416,6 +416,8 @@ pub fn run_move_to_llvm_build(
     fs::create_dir_all(test_plan.build_dir.to_str().unwrap()).expect("Directory does not exist");
     cmd.args(["-o", test_plan.build_dir.to_str().expect("utf-8")]);
 
+    dbg!(&cmd);
+
     let output = cmd.output()?;
 
     if !output.status.success() {
@@ -785,6 +787,95 @@ pub fn clean_results<P: AsRef<Path>>(source: P) -> std::io::Result<()> {
                     fs::remove_file(&entry_path)?;
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn switch_last_two_extensions_and_rename(path: &Path) {
+    if let Some(filename) = path.file_name() {
+        if let Some(filename_str) = filename.to_str() {
+            let mut parts: Vec<&str> = filename_str.split('.').collect();
+
+            if parts.len() >= 3 {
+                // Swap the last two extensions
+                let last_ext = parts.pop().unwrap();
+                let second_last_ext = parts.pop().unwrap();
+                parts.push(last_ext);
+                parts.push(second_last_ext);
+
+                let new_filename = parts.join(".");
+
+                let mut new_path = path.to_path_buf();
+                new_path.set_file_name(new_filename);
+
+                fs::rename(path, new_path).expect("Error in renameing");
+            }
+        }
+    }
+}
+
+pub fn list_files_with_extension(directory_path: &Path, extension: &str) -> std::io::Result<Vec<String>> {
+    let dir = fs::read_dir(directory_path)?;
+
+    let file_names: Vec<String> = dir
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == extension {
+                        Some(path.to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(file_names)
+}
+
+pub fn remove_files_with_extension(directory_path: &Path, extension: &str) -> std::io::Result<()> {
+    let dir = fs::read_dir(directory_path)?;
+
+    for entry in dir {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == extension {
+                        // Delete the file with the specified extension
+                        fs::remove_file(&path)?;
+                        println!("Removed: {:?}", path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn clean_directory(directory_path: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(directory_path)? {
+        let entry = entry?;
+        let entry_path = entry.path();
+
+        if entry_path.is_dir() {
+            // If the entry is a directory, recursively clean it
+            clean_directory(&entry_path)?;
+            // After cleaning the subdirectory, remove it
+            fs::remove_dir(&entry_path)?;
+        } else if entry_path.is_file() {
+            // If the entry is a file, remove it
+            fs::remove_file(&entry_path)?;
         }
     }
 
