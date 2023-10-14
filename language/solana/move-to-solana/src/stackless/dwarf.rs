@@ -114,7 +114,12 @@ impl DIBuilder {
 
             // create module
             let module_name = module_ref_name + ".dbg_info";
-            let (mod_nm_ptr, mut mod_nm_len) = str_to_c_params(&module_name);
+            // let (mod_nm_ptr, mut mod_nm_len) = str_to_c_params(&module_name);
+            let cstr = match CString::new(module_name.as_str()) {
+                Ok(cstr) => cstr,
+                Err(_) => CString::new("unknown").expect("Failed to create CString"),
+            };
+            let (mod_nm_ptr, mut mod_nm_len) = (cstr.as_ptr(), cstr.as_bytes().len());
             dbg!(mod_nm_len);
             let module_di = unsafe { LLVMModuleCreateWithName(mod_nm_ptr as *const ::libc::c_char) };
 
