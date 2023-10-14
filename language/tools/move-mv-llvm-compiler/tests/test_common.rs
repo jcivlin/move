@@ -861,18 +861,20 @@ pub fn remove_files_with_extension(directory_path: &Path, extension: &str) -> st
 }
 
 pub fn clean_directory(directory_path: &Path) -> std::io::Result<()> {
-    for entry in fs::read_dir(directory_path)? {
-        let entry = entry?;
-        let entry_path = entry.path();
+    if fs::metadata(directory_path).is_ok() {
+        for entry in fs::read_dir(directory_path)? {
+            let entry = entry?;
+            let entry_path = entry.path();
 
-        if entry_path.is_dir() {
-            // If the entry is a directory, recursively clean it
-            clean_directory(&entry_path)?;
-            // After cleaning the subdirectory, remove it
-            fs::remove_dir(&entry_path)?;
-        } else if entry_path.is_file() {
-            // If the entry is a file, remove it
-            fs::remove_file(&entry_path)?;
+            if entry_path.is_dir() {
+                // If the entry is a directory, recursively clean it
+                clean_directory(&entry_path)?;
+                // After cleaning the subdirectory, remove it
+                fs::remove_dir(&entry_path)?;
+            } else if entry_path.is_file() {
+                // If the entry is a file, remove it
+                fs::remove_file(&entry_path)?;
+            }
         }
     }
 
