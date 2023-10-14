@@ -16,27 +16,16 @@
 use llvm_sys::{
     core::*,
     debuginfo::{
-        LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize,
-        LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+        LLVMCreateDIBuilder, LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateFile,
+        LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize, LLVMDWARFEmissionKind,
+        LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
     },
     prelude::*,
 };
 
-use std::{
-    env,
-    ffi::{CStr, CString},
-    ptr,
-};
+use std::{env, ffi::CStr, ptr};
 
 use crate::stackless::Module;
-
-pub use llvm_sys::{
-    debuginfo::{LLVMCreateDIBuilder, LLVMDIBuilderCreateFile, LLVMDisposeDIBuilder},
-    LLVMAttributeFunctionIndex, LLVMAttributeIndex, LLVMAttributeReturnIndex, LLVMIntPredicate,
-    LLVMLinkage,
-    LLVMLinkage::LLVMInternalLinkage,
-    LLVMTypeKind::LLVMIntegerTypeKind,
-};
 
 #[derive(Clone, Debug)]
 pub struct DIBuilderCore {
@@ -61,15 +50,6 @@ macro_rules! to_cstring {
         };
         cstr
     }};
-}
-
-/// Convert the Rust String to a CString (null-terminated C-style string)
-fn string_to_c_params(s: String) -> (*const ::libc::c_char, ::libc::size_t) {
-    let cstr = match CString::new(s) {
-        Ok(cstr) => cstr,
-        Err(_) => CString::new("").expect("Failed to create an empty CString"),
-    };
-    (cstr.as_ptr(), cstr.as_bytes().len())
 }
 
 pub fn from_raw_slice_to_string(raw_ptr: *const i8, raw_len: ::libc::size_t) -> String {
@@ -255,7 +235,8 @@ impl DIBuilder {
     pub fn print_module_to_file(&self, file_path: String) {
         if let Some(x) = &self.0 {
             let mut err_string = ptr::null_mut();
-            let (filename_ptr, _filename_ptr_len) = string_to_c_params(file_path);
+            let cstr = to_cstring!(file_path);
+            let (filename_ptr, _filename_ptr_len) = (cstr.as_ptr(), cstr.as_bytes().len());
             unsafe {
                 let res = LLVMPrintModuleToFile(x.module_di, filename_ptr, &mut err_string);
                 if res != 0 {
