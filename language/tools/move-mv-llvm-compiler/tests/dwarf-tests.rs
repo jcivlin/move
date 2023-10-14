@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Tests of compilation from .move to LLVM IR with resolution against Move stdlib.
+//! Tests of compilation generated debug information. Only *.dbg_info files are checked.
 //!
 //! # Usage
 //!
@@ -24,26 +24,14 @@
 //! cargo test -p move-mv-llvm-compiler --test dwarf-tests -- basic-coin.move
 //! ```
 //!
-//! Promoting all results to expected results:
-//!
-//! ```
-//! PROMOTE_LLVM_IR=1 cargo test -p move-mv-llvm-compiler --test dwarf-tests
-//! ```
-//!
 //! # Details
 //!
 //! They do the following:
 //!
 //! - Create a test for every .move file in dwarf-tests/, for example for test basic-coin.move
 //! directort basic-coin-build is created.
-//! - Run `move-mv-llvm-compiler` twice:
-//! -- with dependency -p option set as relative path - sub-directory relative_path_results will be created;
-//! -- with dependency -p option set as absolute path - sub-directory absolute_path_results will be created.
-//! - Compare the actual IR to an existing expected IR in each directory.
-//!
-//! If the `PROMOTE_LLVM_IR` env var is set, the actual IR is promoted to the
-//! expected IR.
-//!
+//! - Run `move-mv-llvm-compiler` with -g option. This will create *.dbg_info files.
+//! - Compare the dbg_info.actual files with dbg_info.expected files.
 
 use std::{
     env,
@@ -102,10 +90,11 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
     )?;
 
     tc::remove_files_with_extension(src, "actual")?;
-    rename_dwarf_files(&test_plan);
+    rename_dwarf_files(&test_plan); // will rename *.actual.dbg_info to *.dbg_info.actual
     tc::compare_results(&test_plan)?;
 
     tc::store_results(src, dst)?;
+    tc::clean_results(src)?;
 
     Ok(())
 }
