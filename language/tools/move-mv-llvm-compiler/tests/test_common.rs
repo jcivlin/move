@@ -816,7 +816,10 @@ pub fn switch_last_two_extensions_and_rename(path: &Path) {
     }
 }
 
-pub fn list_files_with_extension(directory_path: &Path, extension: &str) -> std::io::Result<Vec<String>> {
+pub fn list_files_with_extension(
+    directory_path: &Path,
+    extension: &str,
+) -> std::io::Result<Vec<String>> {
     let dir = fs::read_dir(directory_path)?;
 
     let file_names: Vec<String> = dir
@@ -845,16 +848,12 @@ pub fn list_files_with_extension(directory_path: &Path, extension: &str) -> std:
 pub fn remove_files_with_extension(directory_path: &Path, extension: &str) -> std::io::Result<()> {
     let dir = fs::read_dir(directory_path)?;
 
-    for entry in dir {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == extension {
-                        // Delete the file with the specified extension
-                        fs::remove_file(&path)?;
-                        println!("Removed: {:?}", path);
-                    }
+    for entry in dir.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext == extension {
+                    fs::remove_file(&path)?;
                 }
             }
         }

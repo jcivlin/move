@@ -45,7 +45,10 @@
 //! expected IR.
 //!
 
-use std::{env, path::{Path, PathBuf}};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 mod test_common;
 use anyhow::bail;
@@ -82,7 +85,7 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
         bail!("No extension found in the filename {}", test_name);
     }
 
-    let p_absolute_path = current_dir.join(&toml_dir).to_str().unwrap().to_owned();
+    let p_absolute_path = current_dir.join(toml_dir).to_str().unwrap().to_owned();
 
     let src = &test_plan.build_dir;
     let dst = &src.join("stored_results");
@@ -122,7 +125,6 @@ fn rename_dwarf_files(test_plan: &tc::TestPlan) {
                 tc::switch_last_two_extensions_and_rename(&PathBuf::from(file));
             }
         }
-        Err(_err) => {
-        }
+        Err(_err) => {}
     }
 }
