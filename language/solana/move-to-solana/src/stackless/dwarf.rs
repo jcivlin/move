@@ -61,7 +61,10 @@ pub fn from_raw_slice_to_string(raw_ptr: *const i8, raw_len: ::libc::size_t) -> 
 
 fn relative_to_absolute(relative_path: &str) -> std::io::Result<String> {
     let current_dir = env::current_dir()?;
-    let absolute_path = current_dir.join(relative_path);
+    let absolute_path = current_dir
+        .join(relative_path)
+        .canonicalize()
+        .expect("Cannot canonicanize path");
 
     Ok(absolute_path.to_string_lossy().to_string())
 }

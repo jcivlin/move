@@ -9,6 +9,8 @@ use serde_json::Result;
 use std::{
     ffi::OsStr,
     fs,
+    fs::File,
+    io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -774,6 +776,7 @@ pub fn store_results<P: AsRef<Path>>(source: P, destination: P) -> std::io::Resu
     Ok(())
 }
 
+// Removes files with extension "actual"
 pub fn clean_results<P: AsRef<Path>>(source: P) -> std::io::Result<()> {
     for entry in fs::read_dir(source)? {
         let entry = entry?;
@@ -843,23 +846,6 @@ pub fn list_files_with_extension(
     Ok(file_names)
 }
 
-pub fn remove_files_with_extension(directory_path: &Path, extension: &str) -> std::io::Result<()> {
-    let dir = fs::read_dir(directory_path)?;
-
-    for entry in dir.flatten() {
-        let path = entry.path();
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext == extension {
-                    fs::remove_file(&path)?;
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 pub fn clean_directory(directory_path: &Path) -> std::io::Result<()> {
     if fs::metadata(directory_path).is_ok() {
         for entry in fs::read_dir(directory_path)? {
@@ -877,6 +863,41 @@ pub fn clean_directory(directory_path: &Path) -> std::io::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+pub fn erase_spot_from_line(line: &str, spot: &str) -> String {
+    if let Some(index) = line.find(spot) {
+        line[..index].to_string() + &line[(index + spot.len())..]
+    } else {
+        line.to_string()
+    }
+}
+
+pub fn filter_file<F>(file_path: &PathBuf, filter_key: &str, mut filter: F) -> std::io::Result<()>
+where
+    F: FnMut(&str, &str) -> String,
+{
+    // Open the original file for reading
+    let input_file = File::open(file_path)?;
+    let input_file_reader = BufReader::new(input_file);
+
+    // Create a temporary file for writing the modified content
+    let tmp_file_path = file_path.with_extension("tmp");
+    let tmp_file = File::create(&tmp_file_path)?;
+    let mut tmp_file_writer = BufWriter::new(tmp_file);
+
+    for line in input_file_reader.lines() {
+        let original_line = line?;
+        let modified_line = filter(&original_line, filter_key);
+
+        // Write the modified line to the temporary file
+        writeln!(tmp_file_writer, "{}", modified_line)?;
+    }
+
+    // Replace the original file with the temporary file
+    std::fs::rename(&tmp_file_path, file_path)?;
 
     Ok(())
 }

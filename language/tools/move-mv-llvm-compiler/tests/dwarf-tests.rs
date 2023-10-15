@@ -64,6 +64,8 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
         .or_else(|err| bail!("Cannot get currecnt directory. Got error: {}", err))
         .unwrap();
 
+    // dbg!(&current_dir);
+
     let test_name = &test_plan.name;
 
     let toml_dir: String;
@@ -81,15 +83,34 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
     tc::clean_results(src)?;
     tc::clean_directory(dst)?;
 
-    /////////////////////
-    // test absolute path
     tc::run_move_to_llvm_build(
         &harness_paths,
         &test_plan,
         vec![&"-p".to_string(), &p_absolute_path, &"-g".to_string()],
     )?;
 
-    tc::remove_files_with_extension(src, "actual")?;
+    // remove .actual files; this will not remove.dbg_info files
+    tc::clean_results(src)?;
+
+    let spot = current_dir
+        .ancestors()
+        .nth(3)
+        .expect("Cannot go up in directory")
+        .to_str()
+        .unwrap();
+
+    // dbg_info files contain lines with absolute path, since it is host dependent, remove prefix in all paths.
+    match tc::list_files_with_extension(src, "debug_info") {
+        Ok(files) => {
+            for file in files {
+                tc::filter_file(&PathBuf::from(file), spot, tc::erase_spot_from_line)?;
+            }
+        }
+        Err(_err) => {}
+    }
+
+    // tc::remove_files_with_extension(src, "actual")?;
+
     rename_dwarf_files(&test_plan); // will rename *.actual.dbg_info to *.dbg_info.actual
     tc::compare_results(&test_plan)?;
 
