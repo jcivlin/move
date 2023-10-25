@@ -5,12 +5,12 @@
 use anyhow::Context;
 use core::result::Result::Ok;
 use log::debug;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
 use std::{
     ffi::OsStr,
-    fs,
-    fs::File,
+    fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
     process::Command,
@@ -835,14 +835,6 @@ pub fn list_files_with_extension(
     Ok(file_names)
 }
 
-pub fn erase_spot_from_line(line: &str, spot: &str) -> String {
-    if let Some(index) = line.find(spot) {
-        line[..index].to_string() + &line[(index + spot.len())..]
-    } else {
-        line.to_string()
-    }
-}
-
 pub fn filter_file<F>(file_path: &PathBuf, filter_key: &str, mut filter: F) -> std::io::Result<()>
 where
     F: FnMut(&str, &str) -> String,
@@ -870,9 +862,6 @@ where
 
     Ok(())
 }
-
-extern crate rand;
-use rand::Rng;
 
 fn generate_random_number() -> u32 {
     let mut rng = rand::thread_rng();

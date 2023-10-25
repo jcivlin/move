@@ -98,7 +98,7 @@ fn run_test_inner(test_path: &Path) -> anyhow::Result<()> {
     match tc::list_files_with_extension(src, "debug_info") {
         Ok(files) => {
             for file in files {
-                tc::filter_file(&file, spot, tc::erase_spot_from_line)?;
+                tc::filter_file(&file, spot, |line: &str, spot: &str| line.replace(spot, ""))?;
             }
         }
         Err(_err) => {}
