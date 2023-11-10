@@ -16,9 +16,12 @@
 use llvm_sys::{
     core::*,
     debuginfo::{
-        LLVMCreateDIBuilder, LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateFile,
-        LLVMDIBuilderCreateModule, LLVMDIBuilderFinalize, LLVMDWARFEmissionKind,
-        LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+        LLVMCreateDIBuilder, LLVMDIBuilderCreateBasicType, LLVMDIBuilderCreateCompileUnit,
+        LLVMDIBuilderCreateFile, LLVMDIBuilderCreateModule, LLVMDIBuilderCreateNameSpace,
+        LLVMDIBuilderCreatePointerType, LLVMDIBuilderCreateStructType, LLVMDIBuilderFinalize,
+        LLVMDIFlagObjcClassComplete, LLVMDIFlagZero, LLVMDIFlags, LLVMDITypeGetName,
+        LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
+        LLVMDWARFTypeEncoding, LLVMGetMetadataKind,
     },
     prelude::*,
 };
@@ -29,14 +32,23 @@ use crate::stackless::Module;
 
 #[derive(Clone, Debug)]
 pub struct DIBuilderCore {
-    module_di: LLVMModuleRef,
+    module_di: LLVMModuleRef, // ref to the new module created here for DI purpose
     builder_ref: LLVMDIBuilderRef,
     // fields below reserved for future usage
     builder_file: LLVMMetadataRef,
     compiled_unit: LLVMMetadataRef,
     compiled_module: LLVMMetadataRef,
-    module_ref: LLVMModuleRef,
+    module_ref: LLVMModuleRef, // ref to existed "Builder" Module used here as in 'new'
     module_source: String,
+    // basic types
+    pub type_u8: LLVMMetadataRef,
+    pub type_u16: LLVMMetadataRef,
+    pub type_u32: LLVMMetadataRef,
+    pub type_u64: LLVMMetadataRef,
+    pub type_u128: LLVMMetadataRef,
+    pub type_u256: LLVMMetadataRef,
+    pub type_bool: LLVMMetadataRef,
+    pub type_address: LLVMMetadataRef,
 }
 
 #[derive(Clone, Debug)]
@@ -190,6 +202,27 @@ impl DIBuilder {
                 )
             };
 
+            fn create_type(
+                builder_ref: LLVMDIBuilderRef,
+                name: &str,
+                size_in_bits: u64,
+                encoding: LLVMDWARFTypeEncoding,
+                flags: LLVMDIFlags,
+            ) -> LLVMMetadataRef {
+                let name_cstr = to_cstring!(name);
+                let (name_ptr, name_len) = (name_cstr.as_ptr(), name_cstr.as_bytes().len());
+                unsafe {
+                    LLVMDIBuilderCreateBasicType(
+                        builder_ref,
+                        name_ptr,
+                        name_len,
+                        size_in_bits,
+                        encoding,
+                        flags,
+                    )
+                }
+            }
+
             // store all control fields for future usage
             let builder_core = DIBuilderCore {
                 module_di,
@@ -199,6 +232,14 @@ impl DIBuilder {
                 compiled_module,
                 module_ref,
                 module_source: source.to_string(),
+                type_u8: create_type(builder_ref, "u8", 8, 0, LLVMDIFlagZero),
+                type_u16: create_type(builder_ref, "u16", 16, 0, LLVMDIFlagZero),
+                type_u32: create_type(builder_ref, "u32", 32, 0, LLVMDIFlagZero),
+                type_u64: create_type(builder_ref, "u64", 64, 0, LLVMDIFlagZero),
+                type_u128: create_type(builder_ref, "u128", 132, 0, LLVMDIFlagZero),
+                type_u256: create_type(builder_ref, "u256", 256, 0, LLVMDIFlagZero),
+                type_bool: create_type(builder_ref, "bool", 8, 0, LLVMDIFlagZero),
+                type_address: create_type(builder_ref, "address", 128, 0, LLVMDIFlagZero),
             };
 
             DIBuilder(Some(builder_core))
@@ -248,6 +289,79 @@ impl DIBuilder {
                     print!("{msg}");
                     LLVMDisposeMessage(err_string);
                 }
+            };
+        }
+    }
+
+    pub fn create_struct_di(&self, struct_name: &str, lineno: ::libc::c_uint) {
+        if let Some(_di_builder_core) = &self.0 {
+            let di_builder = self.builder_ref().unwrap();
+            let di_builder_file = self.builder_file().unwrap();
+            // let module = self.module_ref().unwrap();
+            let name_cstr = to_cstring!(struct_name);
+            let (mut struct_nm_ptr, mut struct_nm_len) =
+                (name_cstr.as_ptr(), name_cstr.as_bytes().len());
+            let unique_id = std::ffi::CString::new("unique_id").expect("CString conversion failed");
+            unsafe {
+                let name_space = LLVMDIBuilderCreateNameSpace(
+                    di_builder,
+                    di_builder_file,
+                    struct_nm_ptr,
+                    struct_nm_len,
+                    0,
+                );
+                let struct_meta = LLVMDIBuilderCreateStructType(
+                    di_builder,                  // di_builder: LLVMDIBuilderRef,
+                    name_space,                  // scope: LLVMMetadataRef,
+                    struct_nm_ptr,               // Name: *const ::libc::c_char,
+                    struct_nm_len,               // NameLen: ::libc::size_t,
+                    di_builder_file,             //File: LLVMMetadataRef,
+                    lineno,                      // LineNumber: ::libc::c_uint,
+                    0,                           // FIXME! SizeInBits: u64,
+                    0,                           // FIXME! AlignInBits: u32,
+                    LLVMDIFlagObjcClassComplete, // FIXME! Flags: LLVMDIFlags,
+                    ptr::null_mut(),             // DerivedFrom: LLVMMetadataRef,
+                    ptr::null_mut(),             // Elements: *mut LLVMMetadataRef,
+                    0,                           // NumElements: ::libc::c_uint,
+                    0,                           // RunTimeLang: ::libc::c_uint,
+                    ptr::null_mut(),             // VTableHolder: LLVMMetadataRef,
+                    unique_id.as_ptr(),          // UniqueId: *const ::libc::c_char,
+                    0,                           // UniqueIdLen: ::libc::size_t
+                );
+                struct_nm_ptr = LLVMDITypeGetName(struct_meta, &mut struct_nm_len);
+                let struct_name_string = from_raw_slice_to_string(struct_nm_ptr, struct_nm_len);
+                dbg!(struct_name_string);
+                let struct_kind = LLVMGetMetadataKind(struct_meta);
+                dbg!(struct_kind);
+
+                let name_cstr_for_ptr = to_cstring!(format!("{}__ptr", struct_name));
+                let (name_cstr_for_ptr_nm_ptr, name_cstr_for_ptr_nm_len) = (
+                    name_cstr_for_ptr.as_ptr(),
+                    name_cstr_for_ptr.as_bytes().len(),
+                );
+                let struct_ptr = LLVMDIBuilderCreatePointerType(
+                    di_builder,
+                    struct_meta,
+                    192,
+                    192,
+                    0,
+                    name_cstr_for_ptr_nm_ptr,
+                    name_cstr_for_ptr_nm_len,
+                );
+
+                let module_di = &self.module_di().unwrap();
+                let module_ctx = LLVMGetModuleContext(module_di.clone());
+                let meta_as_value = LLVMMetadataAsValue(module_ctx, struct_ptr);
+                LLVMAddNamedMetadataOperand(module_di.clone(), struct_nm_ptr, meta_as_value);
+
+                //LLVMAddNamedMetadataOperand(module_di, )
+                LLVMDIBuilderFinalize(di_builder);
+                let out = LLVMPrintModuleToString(module_di.clone());
+                let c_string: *mut i8 = out as *mut i8;
+                let c_str = CStr::from_ptr(c_string)
+                    .to_str()
+                    .expect("Cannot convert to &str");
+                println!("DI content as &str: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
             };
         }
     }

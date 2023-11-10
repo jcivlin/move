@@ -9,6 +9,7 @@ use crate::{
         llvm::TargetMachine, rttydesc::RttyContext, FunctionContext, RtCall, TargetPlatform,
     },
 };
+use codespan::Location;
 use log::debug;
 use move_binary_format::file_format::SignatureToken;
 use move_core_types::u256::U256;
@@ -239,6 +240,9 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
     // e.g. Struct_A<Vector<Struct_B<T>>>, where T is substituted by a
     // concrete type, won't be declared correctly.
     fn translate_struct(&self, s_env: &mm::StructEnv<'mm>, tyvec: &[mty::Type]) {
+        let id = s_env.get_identifier();
+        dbg!(id);
+        // let llvm_di_builder = &self.llvm_di_builder;
         let ll_name = s_env.ll_struct_name_from_raw_name(tyvec);
         debug!(target: "structs", "translating struct {}", s_env.struct_raw_type_name(tyvec));
         // Visit each field in this struct, collecting field types.
@@ -314,16 +318,24 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
         let mut s = "\n".to_string();
         for (s_env, tyvec) in all_structs {
             let ll_name = s_env.ll_struct_name_from_raw_name(tyvec);
+            let loc = s_env.get_loc();
+            let (filename, location) = s_env
+                .module_env
+                .env
+                .get_file_and_location(&loc)
+                .unwrap_or(("unknown".to_string(), Location::new(0, 0)));
             let prepost = if is_post_translation {
                 "Translated"
             } else {
                 "Translating"
             };
             s += &format!(
-                "{} struct '{}' => '%{}'\n",
+                "{} struct '{}' => '%{}' {}:{}\n",
                 prepost,
                 s_env.struct_raw_type_name(tyvec),
-                ll_name
+                ll_name,
+                filename,
+                location.line
             )
             .to_string();
             for fld_env in s_env.get_fields() {
