@@ -58,6 +58,7 @@ pub fn get_attr_kind_for_name(attr_name: &str) -> Option<usize> {
     }
 }
 
+#[derive(Debug)]
 pub struct Context(LLVMContextRef);
 
 impl Drop for Context {
@@ -991,6 +992,48 @@ impl Type {
         }
     }
 
+    pub fn store_size_of_type(&self, data_layout: TargetData) -> u64 {
+        unsafe { LLVMStoreSizeOfType(data_layout.0, self.0) }
+    }
+
+    pub fn abi_size_of_type(&self, data_layout: TargetData) -> u64 {
+        unsafe { LLVMABISizeOfType(data_layout.0, self.0) }
+    }
+
+    pub fn abi_alignment_of_type(&self, data_layout: TargetData) -> u32 {
+        unsafe { LLVMABIAlignmentOfType(data_layout.0, self.0) }
+    }
+
+    pub fn size_of_type_in_bits(&self, data_layout: TargetData) -> u64 {
+        unsafe { LLVMSizeOfTypeInBits(data_layout.0, self.0) }
+    }
+
+    pub fn call_frame_alignment_of_type(&self, data_layout: TargetData) -> u32 {
+        unsafe { LLVMCallFrameAlignmentOfType(data_layout.0, self.0) }
+    }
+
+    pub fn preferred_alignment_of_type(&self, data_layout: TargetData) -> u32 {
+        unsafe { LLVMPreferredAlignmentOfType(data_layout.0, self.0) }
+    }
+
+    pub fn element_at_offset(
+        &self,
+        data_layout: TargetData,
+        struct_ty: &LLVMTypeRef,
+        offset: u64,
+    ) -> u32 {
+        unsafe { LLVMElementAtOffset(data_layout.0, *struct_ty, offset as ::libc::c_ulonglong) }
+    }
+
+    pub fn offset_of_element(
+        &self,
+        data_layout: TargetData,
+        struct_ty: &LLVMTypeRef,
+        offset: u32,
+    ) -> u64 {
+        unsafe { LLVMOffsetOfElement(data_layout.0, *struct_ty, offset as ::libc::c_uint) }
+    }
+
     pub fn print_to_str(&self) -> &str {
         unsafe {
             CStr::from_ptr(LLVMPrintTypeToString(self.0))
@@ -1000,6 +1043,7 @@ impl Type {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct StructType(LLVMTypeRef);
 
 impl StructType {
@@ -1044,6 +1088,13 @@ impl StructType {
             LLVMDumpType(self.0);
             eprintln!();
         }
+    }
+
+    pub fn dunp_to_string(&self) -> &str {
+        let c_char_ptr = unsafe { LLVMPrintTypeToString(self.0) };
+        let c_str = unsafe { CStr::from_ptr(c_char_ptr) };
+        let str_slice = c_str.to_str().expect("Failed to convert CStr to str");
+        str_slice
     }
 }
 
