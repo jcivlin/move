@@ -203,6 +203,14 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             move_stackless_bytecode::function_target::FunctionTarget::new(&self.env, &fn_data);
         debug!(target: "sbc", "\n{}", func_target);
 
+        let g_env = self.get_global_env();
+        let map_node_to_type: BTreeMap<mm::NodeId, move_model::ty::Type> = g_env
+            .get_nodes()
+            .iter()
+            .map(|nd| (*nd, g_env.get_node_type(*nd)))
+            .collect();
+        debug!(target: "nodes", "\n{:#?}", &map_node_to_type);
+
         // Write the control flow graph to a .dot file for viewing.
         let options = &self.module_cx.options;
         let action = (*options.gen_dot_cfg).to_owned();
@@ -303,7 +311,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         }
 
         // Translate instructions
-        dbg!(&fn_data.code);
         for instr in &fn_data.code {
             self.translate_instruction(instr);
         }
@@ -1113,10 +1120,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         use sbc::Operation;
         let emitter_nop: CheckEmitterFn = (|_, _| (), EmitterFnKind::PreCheck);
         let builder = &self.module_cx.llvm_builder;
-        // let m_context = self.module_cx.llvm_cx;
-        // dbg!(m_context);
         let di_builder = &self.module_cx.llvm_di_builder;
-        dbg!(di_builder);
         match op {
             Operation::Function(mod_id, fun_id, types) => {
                 let types = mty::Type::instantiate_vec(types.to_vec(), self.type_params);
@@ -1163,8 +1167,19 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .llvm_cx
                     .named_struct_type(&struct_name)
                     .expect("no struct type");
-                // let struct_ctx = &stype.get_context();
-                // dbg!(struct_ctx);
+                let global_env = struct_env.module_env.env;
+                src.iter().for_each(|i| {
+                    let source = self.locals[*i].mty.to_owned();
+                    if source.is_struct() {
+                        let struct_inner_env = source.get_struct(global_env).unwrap().0;
+                        let loc = struct_inner_env.get_loc();
+                        let struct_inner_name = struct_inner_env.get_full_name_str();
+                        let (file_inner, location_inner) = global_env
+                            .get_file_and_location(&loc)
+                            .unwrap_or(("unknown".to_string(), Location::new(0, 0)));
+                        debug!(target: "dwarf", "Inner struct {} {}:{}", struct_inner_name, file_inner, location_inner.line.0);
+                    }
+                });
                 let fvals = src
                     .iter()
                     .map(|i| (self.locals[*i].llty, self.locals[*i].llval))
@@ -1173,10 +1188,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                 let ldst = (self.locals[dst_idx].llty, self.locals[dst_idx].llval);
                 builder.insert_fields_and_store(&fvals, ldst, stype);
                 if let Some(module) = di_builder.module_di() {
-                    dbg!(&module);
                     let context = unsafe { LLVMGetModuleContext(module) };
-                    dbg!(context);
-                } else {
+                    debug!(target: "dwarf", "Module: {:#?}, context: {:#?}", &module, context);
                 };
                 let loc = struct_env.get_loc();
                 let (filename, location) = struct_env
@@ -1184,10 +1197,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .env
                     .get_file_and_location(&loc)
                     .unwrap_or(("unknown".to_string(), Location::new(0, 0)));
-                dbg!(&op);
-                dbg!(filename);
-                dbg!(location.line.0);
-                di_builder.create_struct_di(&struct_name, location.line.0);
+                debug!(target: "dwarf", "Op {:#?} {}:{:#?}", &op, filename, location.line.0);
+                di_builder.create_struct(&struct_env, &struct_name, None);
             }
             Operation::Unpack(mod_id, struct_id, types) => {
                 let types = mty::Type::instantiate_vec(types.to_vec(), self.type_params);

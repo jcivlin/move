@@ -57,6 +57,7 @@ pub fn get_attr_kind_for_name(attr_name: &str) -> Option<usize> {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct Context(LLVMContextRef);
 

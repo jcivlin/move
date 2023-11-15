@@ -13,19 +13,23 @@
 //! - Hides weirdly mutable array pointers.
 //! - Provides high-level instruction builders compatible with the stackless bytecode model.
 
+use codespan::Location;
 use llvm_sys::{
     core::*,
     debuginfo::{
         LLVMCreateDIBuilder, LLVMDIBuilderCreateBasicType, LLVMDIBuilderCreateCompileUnit,
-        LLVMDIBuilderCreateFile, LLVMDIBuilderCreateModule, LLVMDIBuilderCreateNameSpace,
-        LLVMDIBuilderCreatePointerType, LLVMDIBuilderCreateStructType, LLVMDIBuilderFinalize,
-        LLVMDIFlagObjcClassComplete, LLVMDIFlagZero, LLVMDIFlags, LLVMDITypeGetName,
-        LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust,
-        LLVMDWARFTypeEncoding, LLVMGetMetadataKind,
+        LLVMDIBuilderCreateFile, LLVMDIBuilderCreateMemberType, LLVMDIBuilderCreateModule,
+        LLVMDIBuilderCreateNameSpace, LLVMDIBuilderCreatePointerType,
+        LLVMDIBuilderCreateStructType, LLVMDIBuilderFinalize, LLVMDIFlagObjcClassComplete,
+        LLVMDIFlagZero, LLVMDIFlags, LLVMDITypeGetName, LLVMDWARFEmissionKind,
+        LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust, LLVMDWARFTypeEncoding,
+        LLVMGetMetadataKind,
     },
     prelude::*,
 };
 
+use log::debug;
+use move_model::model::StructEnv;
 use std::{env, ffi::CStr, ptr};
 
 use crate::stackless::Module;
@@ -83,7 +87,6 @@ fn relative_to_absolute(relative_path: &str) -> std::io::Result<String> {
 
 impl DIBuilder {
     pub fn new(module: &mut Module, source: &str, debug: bool) -> DIBuilder {
-        use log::debug;
         if debug {
             let module_ref_name = module.get_module_id();
             let module_ref = module.as_mut();
@@ -293,76 +296,150 @@ impl DIBuilder {
         }
     }
 
-    pub fn create_struct_di(&self, struct_name: &str, lineno: ::libc::c_uint) {
+    pub fn create_struct(
+        &self,
+        struct_env: &StructEnv,
+        struct_llvm_name: &str,
+        parent: Option<LLVMMetadataRef>,
+    ) {
         if let Some(_di_builder_core) = &self.0 {
             let di_builder = self.builder_ref().unwrap();
             let di_builder_file = self.builder_file().unwrap();
-            // let module = self.module_ref().unwrap();
+            let mod_env = &struct_env.module_env;
+
+            let name = struct_env.get_full_name_str();
+            debug!(target: "struct", "dbg for struct {} with llvm name {}", &name, struct_llvm_name);
+            // FIXME: not clear whether to use 'name' or 'struct_llvm_name' for DWARF
+            let struct_name = struct_llvm_name;
             let name_cstr = to_cstring!(struct_name);
-            let (mut struct_nm_ptr, mut struct_nm_len) =
-                (name_cstr.as_ptr(), name_cstr.as_bytes().len());
+            let (struct_nm_ptr, struct_nm_len) = (name_cstr.as_ptr(), name_cstr.as_bytes().len());
             let unique_id = std::ffi::CString::new("unique_id").expect("CString conversion failed");
-            unsafe {
-                let name_space = LLVMDIBuilderCreateNameSpace(
+
+            let name_space = unsafe {
+                LLVMDIBuilderCreateNameSpace(
                     di_builder,
                     di_builder_file,
                     struct_nm_ptr,
                     struct_nm_len,
                     0,
-                );
-                let struct_meta = LLVMDIBuilderCreateStructType(
-                    di_builder,                  // di_builder: LLVMDIBuilderRef,
-                    name_space,                  // scope: LLVMMetadataRef,
-                    struct_nm_ptr,               // Name: *const ::libc::c_char,
-                    struct_nm_len,               // NameLen: ::libc::size_t,
-                    di_builder_file,             //File: LLVMMetadataRef,
-                    lineno,                      // LineNumber: ::libc::c_uint,
-                    0,                           // FIXME! SizeInBits: u64,
-                    0,                           // FIXME! AlignInBits: u32,
-                    LLVMDIFlagObjcClassComplete, // FIXME! Flags: LLVMDIFlags,
-                    ptr::null_mut(),             // DerivedFrom: LLVMMetadataRef,
-                    ptr::null_mut(),             // Elements: *mut LLVMMetadataRef,
-                    0,                           // NumElements: ::libc::c_uint,
-                    0,                           // RunTimeLang: ::libc::c_uint,
-                    ptr::null_mut(),             // VTableHolder: LLVMMetadataRef,
-                    unique_id.as_ptr(),          // UniqueId: *const ::libc::c_char,
-                    0,                           // UniqueIdLen: ::libc::size_t
-                );
-                struct_nm_ptr = LLVMDITypeGetName(struct_meta, &mut struct_nm_len);
-                let struct_name_string = from_raw_slice_to_string(struct_nm_ptr, struct_nm_len);
-                dbg!(struct_name_string);
-                let struct_kind = LLVMGetMetadataKind(struct_meta);
-                dbg!(struct_kind);
+                )
+            };
+            let loc = struct_env.get_loc();
+            let (filename, location) = struct_env
+                .module_env
+                .env
+                .get_file_and_location(&loc)
+                .unwrap_or(("unknown".to_string(), Location::new(0, 0)));
+            debug!(target: "struct", "source: {}:{}", filename, location.line.0);
 
-                let name_cstr_for_ptr = to_cstring!(format!("{}__ptr", struct_name));
-                let (name_cstr_for_ptr_nm_ptr, name_cstr_for_ptr_nm_len) = (
-                    name_cstr_for_ptr.as_ptr(),
-                    name_cstr_for_ptr.as_bytes().len(),
-                );
-                let struct_ptr = LLVMDIBuilderCreatePointerType(
+            let mut fields: Vec<LLVMMetadataRef> = struct_env.get_fields().map(|f|
+                {
+                let symbol = f.get_name();
+                let fld_name = symbol.display(mod_env.symbol_pool()).to_string();
+                let fld_name_cstr = to_cstring!(fld_name.clone());
+                let (field_nm_ptr, field_nm_len) = (fld_name_cstr.as_ptr(), fld_name_cstr.as_bytes().len());
+                let offset = f.get_offset() as u32;
+                let ty = f.get_type();
+                let fld_loc = if let Some(named_const) = mod_env.find_named_constant(symbol) {
+                    assert!(named_const.get_name() == symbol);
+                    named_const.get_loc()
+                } else {
+                    mod_env.env.unknown_loc()
+                };
+                let fld_loc_str = fld_loc.display(mod_env.env).to_string();
+                debug!(target: "struct", "field {}: {:#?} {}", &fld_name, &fld_loc, fld_loc_str);
+
+                let vars = ty.get_vars(); // FIXME: how vars can be used for DWARF?
+                debug!(target: "struct", "vars {:#?}", vars);
+
+                let fld = unsafe { LLVMDIBuilderCreateMemberType(
+                    di_builder,
+                    name_space,
+                    field_nm_ptr,
+                    field_nm_len,
+                    di_builder_file, //File: LLVMMetadataRef,
+                    location.line.0 + offset + 1,  // FIXME: cannot find Loc for fields in Move compiler
+                    0, // FIXME: this might not be known until llvm BE!
+                    0,
+                    0,
+                    0,
+                    self.0.as_ref().unwrap().type_u32, // FIXME ty
+                )};
+                fld
+            }).collect();
+            debug!(target: "struct", "fields {:#?}", fields);
+
+            let fields_mut: *mut LLVMMetadataRef = fields.as_mut_ptr();
+
+            let struct_meta = unsafe {
+                LLVMDIBuilderCreateStructType(
+                    di_builder,
+                    name_space,
+                    struct_nm_ptr,   // Name: *const ::libc::c_char,
+                    struct_nm_len,   // NameLen: ::libc::size_t,
+                    di_builder_file, //File: LLVMMetadataRef,
+                    location.line.0,
+                    0, // FIXME: this might not be known until llvm BE!
+                    0,
+                    LLVMDIFlagObjcClassComplete, // FIXME! unclear how flags are used
+                    parent.unwrap_or(ptr::null_mut()), // DerivedFrom: LLVMMetadataRef,
+                    fields_mut,                  // Elements: *mut LLVMMetadataRef,
+                    fields.len() as u32,         // NumElements: ::libc::c_uint,
+                    0,               // RunTimeLang: ::libc::c_uint - FIXME: unclear how it is used
+                    ptr::null_mut(), // VTableHolder: LLVMMetadataRef - FIXME: likely not used in MOVE
+                    unique_id.as_ptr(), // UniqueId: *const ::libc::c_char - FIXME: not set for now, maybe useful
+                    0,                  // UniqueIdLen: ::libc::size_t
+                )
+            };
+
+            // Check the name in DWARF
+            let mut struct_nm_len_new: usize = 0;
+            let struct_nm_ptr_new =
+                unsafe { LLVMDITypeGetName(struct_meta, &mut struct_nm_len_new) };
+            let struct_name_new = from_raw_slice_to_string(struct_nm_ptr_new, struct_nm_len_new);
+            assert!(
+                struct_name == struct_name_new,
+                "Must create DRARF struct with the same name"
+            );
+
+            // FIXME: is it used/usefull?
+            let struct_kind = unsafe { LLVMGetMetadataKind(struct_meta) };
+            debug!(target: "struct", "struct_kind {:#?}", struct_kind);
+
+            let name_cstr_for_ptr = to_cstring!(format!("{}__ptr", struct_name));
+            let (name_cstr_for_ptr_nm_ptr, name_cstr_for_ptr_nm_len) = (
+                name_cstr_for_ptr.as_ptr(),
+                name_cstr_for_ptr.as_bytes().len(),
+            );
+
+            // DWARF wants this set
+            let struct_ptr = unsafe {
+                LLVMDIBuilderCreatePointerType(
                     di_builder,
                     struct_meta,
-                    192,
+                    192, // FIXME: maybe ignored?
                     192,
                     0,
                     name_cstr_for_ptr_nm_ptr,
                     name_cstr_for_ptr_nm_len,
-                );
-
-                let module_di = &self.module_di().unwrap();
-                let module_ctx = LLVMGetModuleContext(module_di.clone());
-                let meta_as_value = LLVMMetadataAsValue(module_ctx, struct_ptr);
-                LLVMAddNamedMetadataOperand(module_di.clone(), struct_nm_ptr, meta_as_value);
-
-                //LLVMAddNamedMetadataOperand(module_di, )
-                LLVMDIBuilderFinalize(di_builder);
-                let out = LLVMPrintModuleToString(module_di.clone());
-                let c_string: *mut i8 = out as *mut i8;
-                let c_str = CStr::from_ptr(c_string)
-                    .to_str()
-                    .expect("Cannot convert to &str");
-                println!("DI content as &str: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
+                )
             };
+
+            let module_di = &self.module_di().unwrap();
+            let module_ctx = unsafe { LLVMGetModuleContext(*module_di) };
+            let meta_as_value = unsafe { LLVMMetadataAsValue(module_ctx, struct_ptr) };
+            unsafe { LLVMAddNamedMetadataOperand(*module_di, struct_nm_ptr, meta_as_value) };
+
+            // FIXME: temporary LLVMDIBuilderFinalize set for debugging
+            // unsafe { LLVMDIBuilderFinalize(di_builder) };
+            let out = unsafe { LLVMPrintModuleToString(*module_di) };
+            let c_string: *mut i8 = out;
+            let c_str = unsafe {
+                CStr::from_ptr(c_string)
+                    .to_str()
+                    .expect("Cannot convert to &str")
+            };
+            debug!(target: "struct", "DI content as &str: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
         }
     }
 
