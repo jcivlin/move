@@ -5,8 +5,13 @@
 use crate::{
     options::Options,
     stackless::{
-        dwarf::DIBuilder, entrypoint::EntrypointGenerator, extensions::*, llvm,
-        llvm::TargetMachine, rttydesc::RttyContext, FunctionContext, RtCall, TargetPlatform,
+        dwarf::{DIBuilder, UnresolvedPrintLogLevel},
+        entrypoint::EntrypointGenerator,
+        extensions::*,
+        llvm,
+        llvm::TargetMachine,
+        rttydesc::RttyContext,
+        FunctionContext, RtCall, TargetPlatform,
     },
 };
 use codespan::Location;
@@ -30,7 +35,7 @@ pub struct ModuleContext<'mm: 'up, 'up> {
     pub llvm_cx: &'up llvm::Context,
     pub llvm_module: &'up llvm::Module,
     pub llvm_builder: llvm::Builder,
-    pub llvm_di_builder: DIBuilder,
+    pub llvm_di_builder: DIBuilder<'up>,
     /// A map of move function id's to llvm function ids
     ///
     /// All functions that might be called are declared prior to function translation.
@@ -71,6 +76,9 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
         }
 
         self.llvm_module.verify();
+        self.llvm_di_builder
+            .print_log_unresoled_types(UnresolvedPrintLogLevel::Warning);
+        self.llvm_di_builder.finalize();
     }
 
     /// Generate LLVM IR struct declarations for all Move structures.
@@ -224,6 +232,9 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
         // extractvalue, and insertvalue.
         for (s_env, tyvec) in &all_structs {
             self.translate_struct(s_env, tyvec);
+
+            // Note: too early to call here `llvm_di_builder.create_struct` since llvm type for struct
+            // may be yet not defined, and will be defined in opcode translation.
         }
 
         debug!(

@@ -26,14 +26,20 @@ use std::{
 };
 
 pub use llvm_sys::{
-    debuginfo::{LLVMCreateDIBuilder, LLVMDIBuilderCreateFile, LLVMDisposeDIBuilder},
+    debuginfo::{
+        LLVMCreateDIBuilder, LLVMDIBuilderCreateFile, LLVMDITypeGetName, LLVMDisposeDIBuilder,
+    },
     LLVMAttributeFunctionIndex, LLVMAttributeIndex, LLVMAttributeReturnIndex, LLVMIntPredicate,
     LLVMLinkage,
     LLVMLinkage::LLVMInternalLinkage,
     LLVMTypeKind::LLVMIntegerTypeKind,
+    LLVMValue,
 };
 
-use crate::stackless::dwarf::{from_raw_slice_to_string, DIBuilder};
+use crate::stackless::{
+    dwarf::{from_raw_slice_to_string, DIBuilder},
+    GlobalContext,
+};
 
 pub fn initialize_sbf() {
     unsafe {
@@ -55,6 +61,21 @@ pub fn get_attr_kind_for_name(attr_name: &str) -> Option<usize> {
         } else {
             Some(uint_kind as usize)
         }
+    }
+}
+
+fn get_name(value: *mut LLVMValue) -> String {
+    let mut length: ::libc::size_t = 0;
+    let name_ptr = unsafe { LLVMGetValueName2(value, &mut length) };
+    let name_cstr = unsafe { std::ffi::CStr::from_ptr(name_ptr) };
+    name_cstr.to_string_lossy().into_owned()
+}
+
+// Reserved for future usage
+fn _set_name(value: LLVMValueRef, name: &str) {
+    let cstr = std::ffi::CString::new(name).expect("Failed to create CString");
+    unsafe {
+        LLVMSetValueName2(value, cstr.as_ptr(), cstr.as_bytes().len());
     }
 }
 
@@ -82,8 +103,14 @@ impl Context {
         unsafe { Builder(LLVMCreateBuilderInContext(self.0)) }
     }
 
-    pub fn create_di_builder(&self, module: &mut Module, source: &str, debug: bool) -> DIBuilder {
-        DIBuilder::new(module, source, debug)
+    pub fn create_di_builder<'up>(
+        &'up self,
+        g_ctx: &'up GlobalContext,
+        module: &mut Module,
+        source: &str,
+        debug: bool,
+    ) -> DIBuilder {
+        DIBuilder::new(g_ctx, module, source, debug)
     }
 
     pub fn get_anonymous_struct_type(&self, field_tys: &[Type]) -> Type {
@@ -488,7 +515,11 @@ impl Builder {
     }
 
     pub fn build_alloca(&self, ty: Type, name: &str) -> Alloca {
-        unsafe { Alloca(LLVMBuildAlloca(self.0, ty.0, name.cstr())) }
+        unsafe {
+            let alloca = Alloca(LLVMBuildAlloca(self.0, ty.0, name.cstr()));
+            alloca.set_name(name);
+            alloca
+        }
     }
 
     pub fn store_param_to_alloca(&self, param: Parameter, alloca: Alloca) {
@@ -798,6 +829,8 @@ impl Builder {
 
         unsafe {
             let mut args = args.iter().map(|a| a.0).collect::<Vec<_>>();
+            let func_name = get_name(fnval.0);
+            dbg!(func_name);
             let ret = LLVMBuildCall2(
                 self.0,
                 fnty.0,
@@ -806,19 +839,30 @@ impl Builder {
                 args.len() as libc::c_uint,
                 (if dst.is_empty() { "" } else { "retval" }).cstr(),
             );
+            let ret_name = get_name(ret);
+            dbg!(ret_name);
 
             if dst.is_empty() {
                 // No return values.
             } else if dst.len() == 1 {
                 // Single return value.
-                LLVMBuildStore(self.0, ret, dst[0].1 .0);
+                let alloca = dst[0].1;
+                dbg!(alloca);
+                let name = alloca.get_name();
+                dbg!(name);
+                let ret = LLVMBuildStore(self.0, ret, dst[0].1 .0);
+                let name = get_name(ret);
+                dbg!(name);
             } else {
                 // Multiple return values-- unwrap the struct.
                 let extracts = dst
                     .iter()
                     .enumerate()
                     .map(|(i, (_ty, dval))| {
+                        let _name = dval.get_name();
+                        dbg!(_name);
                         let name = format!("extract_{i}");
+                        dbg!(&name);
                         let ev = LLVMBuildExtractValue(self.0, ret, i as libc::c_uint, name.cstr());
                         (ev, dval)
                     })
@@ -939,7 +983,7 @@ impl Builder {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Type(pub LLVMTypeRef);
 
 impl Type {
@@ -1115,12 +1159,16 @@ impl FunctionType {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Function(LLVMValueRef);
 
 impl Function {
     pub fn as_gv(&self) -> Global {
         Global(self.0)
+    }
+
+    pub fn get_name(&self) -> String {
+        get_name(self.0)
     }
 
     pub fn get_next_basic_block(&self, basic_block: BasicBlock) -> Option<BasicBlock> {
@@ -1146,8 +1194,21 @@ impl Function {
         }
     }
 
+    pub fn count_params(&self) -> ::libc::c_uint {
+        unsafe { LLVMCountParams(self.0) }
+    }
+
     pub fn get_param(&self, i: usize) -> Parameter {
         unsafe { Parameter(LLVMGetParam(self.0, i as u32)) }
+    }
+
+    pub fn get_params(&self) -> Vec<Parameter> {
+        let param_count = self.count_params();
+        let mut params: Vec<Parameter> = vec![];
+        for idx in 0..param_count {
+            params.push(self.get_param(idx as usize));
+        }
+        params
     }
 
     pub fn llvm_type(&self) -> FunctionType {
@@ -1166,7 +1227,7 @@ impl Function {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct BasicBlock(LLVMBasicBlockRef);
 
 impl BasicBlock {
@@ -1176,7 +1237,7 @@ impl BasicBlock {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Alloca(LLVMValueRef);
+pub struct Alloca(pub LLVMValueRef);
 
 impl Alloca {
     pub fn as_any_value(&self) -> AnyValue {
@@ -1192,6 +1253,22 @@ impl Alloca {
     }
     pub fn get0(&self) -> LLVMValueRef {
         self.0
+    }
+
+    pub fn set_name(&self, name: &str) {
+        let value = self.0;
+        let cstr = std::ffi::CString::new(name).expect("CString conversion failed");
+        unsafe {
+            LLVMSetValueName2(value, cstr.as_ptr(), cstr.as_bytes().len());
+        }
+    }
+
+    pub fn get_name(&self) -> String {
+        let value = self.0;
+        let mut length: ::libc::size_t = 0;
+        let name_ptr = unsafe { LLVMGetValueName2(value, &mut length) };
+        let name_cstr = unsafe { std::ffi::CStr::from_ptr(name_ptr) };
+        name_cstr.to_string_lossy().into_owned()
     }
 }
 
@@ -1218,7 +1295,7 @@ impl AnyValue {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Global(LLVMValueRef);
 
 impl Global {
@@ -1274,7 +1351,7 @@ impl Global {
     }
 }
 
-pub struct Parameter(LLVMValueRef);
+pub struct Parameter(pub LLVMValueRef);
 
 impl Parameter {
     pub fn as_any_value(&self) -> AnyValue {
