@@ -463,7 +463,6 @@ impl DIBuilder {
                 let vars = mv_ty.get_vars(); // FIXME: how vars can be used for DWARF?
                 debug!(target: "struct", "vars {:#?}", vars);
 
-                // let sz_in_bits: u64 = struct_type.struct_get_type_at_index(offset.try_into().unwrap()).get_int_type_width().into();
                 let sz_in_bits: u64 = size_of_type_in_bits;
                 let align_in_bits: u32 = abi_alignment_of_type * 8;
                 let fld = unsafe { LLVMDIBuilderCreateMemberType(
@@ -500,7 +499,7 @@ impl DIBuilder {
                     struct_nm_len,   // NameLen: ::libc::size_t,
                     di_builder_file, //File: LLVMMetadataRef,
                     location.line.0,
-                    struct_type_in_bits, // current_offset, // FIXME: this might not be known until llvm BE!
+                    struct_type_in_bits,
                     struct_prefered_alignment,
                     LLVMDIFlagObjcClassComplete, // FIXME! unclear how flags are used
                     parent.unwrap_or(ptr::null_mut()), // DerivedFrom: LLVMMetadataRef,
