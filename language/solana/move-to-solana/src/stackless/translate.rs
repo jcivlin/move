@@ -33,8 +33,8 @@
 use crate::{
     options::Options,
     stackless::{
-        entrypoint::EntrypointGenerator, extensions::*, llvm, module_context::ModuleContext,
-        rttydesc::RttyContext,
+        dwarf::DIContext, entrypoint::EntrypointGenerator, extensions::*, llvm,
+        module_context::ModuleContext, rttydesc::RttyContext,
     },
 };
 use codespan::Location;
@@ -88,6 +88,7 @@ pub struct GlobalContext<'up> {
     pub llvm_cx: llvm::Context,
     target: TargetPlatform,
     target_machine: &'up llvm::TargetMachine,
+    pub di_context: DIContext,
 }
 
 impl<'up> GlobalContext<'up> {
@@ -127,6 +128,7 @@ impl<'up> GlobalContext<'up> {
             llvm_cx: llvm::Context::new(),
             target,
             target_machine,
+            di_context: DIContext::new(),
         }
     }
 
@@ -145,7 +147,7 @@ impl<'up> GlobalContext<'up> {
         let modname = m_env.llvm_module_name();
         debug!(target: "dwarf", "Create DWARF for module {:#?} with source {:#?}", modname, source);
         let mut module = self.llvm_cx.create_module(&modname);
-        let llvm_di_builder = llvm_cx.create_di_builder(&mut module, source, options.debug);
+        let llvm_di_builder = llvm_cx.create_di_builder(self, &mut module, source, options.debug);
         let rtty_cx = RttyContext::new(self.env, &self.llvm_cx, llmod);
         ModuleContext {
             env: self.env.get_module(id),
@@ -1198,8 +1200,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     .get_file_and_location(&loc)
                     .unwrap_or(("unknown".to_string(), Location::new(0, 0)));
                 debug!(target: "dwarf", "Op {:#?} {}:{:#?}", &op, filename, location.line.0);
-                let mod_ctx = self.module_cx;
-                di_builder.create_struct(&struct_env, &struct_name, mod_ctx, None);
+                di_builder.create_struct(self, mod_id, struct_id, &struct_name, None);
             }
             Operation::Unpack(mod_id, struct_id, types) => {
                 let types = mty::Type::instantiate_vec(types.to_vec(), self.type_params);

@@ -13,7 +13,7 @@
 //! - Hides weirdly mutable array pointers.
 //! - Provides high-level instruction builders compatible with the stackless bytecode model.
 
-use crate::stackless::{Module, ModuleContext, TargetData};
+use crate::stackless::{FunctionContext, Module, TargetData};
 use codespan::Location;
 use llvm_sys::{
     core::*,
@@ -30,22 +30,49 @@ use llvm_sys::{
 };
 
 use log::debug;
-use move_model::model::{StructEnv, StructId};
-use std::{cell::RefCell, collections::HashMap, env, ffi::CStr, ptr};
+use move_model::model::{ModuleId, StructId};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    env,
+    ffi::CStr,
+    ptr,
+};
 
-use super::StructType;
+use super::{GlobalContext, StructType};
 
 use move_model::ty as mty;
 
-#[derive(Clone, Debug)]
-pub struct DIBuilderCore {
+pub struct DIContext {
+    // lives in GlobalContext
+    pub type_struct_db: RefCell<HashMap<StructId, LLVMMetadataRef>>,
+    pub unresolved_mty: RefCell<
+        HashSet<(
+            mty::Type,
+            String, // mty name
+            String, // general msg
+        )>,
+    >,
+}
+
+impl DIContext {
+    pub fn new() -> DIContext {
+        DIContext {
+            type_struct_db: RefCell::new(HashMap::new()),
+            unresolved_mty: RefCell::new(HashSet::new()),
+        }
+    }
+}
+#[derive(Clone)]
+pub struct DIBuilderCore<'up> {
+    g_ctx: &'up GlobalContext<'up>,
     module_di: LLVMModuleRef, // ref to the new module created here for DI purpose
     builder_ref: LLVMDIBuilderRef,
     // fields below reserved for future usage
     builder_file: LLVMMetadataRef,
     compiled_unit: LLVMMetadataRef,
     compiled_module: LLVMMetadataRef,
-    module_ref: LLVMModuleRef, // ref to existed "Builder" Module used here as in 'new'
+    module_ref: LLVMModuleRef, // ref to existed "Builder" Module, which was used in 'new'
     module_source: String,
     // basic types
     pub type_unspecified: LLVMMetadataRef,
@@ -57,7 +84,6 @@ pub struct DIBuilderCore {
     pub type_u256: LLVMMetadataRef,
     pub type_bool: LLVMMetadataRef,
     pub type_address: LLVMMetadataRef,
-    pub type_struct_db: RefCell<HashMap<StructId, LLVMMetadataRef>>,
 }
 
 fn type_get_name(x: LLVMMetadataRef) -> String {
@@ -71,23 +97,53 @@ fn type_get_name(x: LLVMMetadataRef) -> String {
     name
 }
 
-impl DIBuilderCore {
-    pub fn add_type_struct(&self, struct_id: StructId, re: LLVMMetadataRef) {
-        self.type_struct_db.borrow_mut().insert(struct_id, re);
+impl<'up> DIBuilderCore<'up> {
+    pub fn add_type_struct(&self, struct_id: StructId, ty: LLVMMetadataRef) {
+        let name = type_get_name(ty);
+        debug!(target: "struct", "set type {} for struct {:#?}", name, struct_id);
+        self.g_ctx
+            .di_context
+            .type_struct_db
+            .borrow_mut()
+            .insert(struct_id, ty);
     }
 
-    pub fn get_type_struct(&self, struct_id: StructId) -> LLVMMetadataRef {
-        let binding = self.type_struct_db.borrow_mut();
+    pub fn get_type_struct(
+        &self,
+        _module_id: ModuleId, // reserved for future usage and debugging
+        struct_id: StructId,
+        struct_name: &String,
+    ) -> LLVMMetadataRef {
+        let binding = self.g_ctx.di_context.type_struct_db.borrow_mut();
         let val: Option<&*mut llvm_sys::LLVMOpaqueMetadata> = binding.get(&struct_id);
-        match val {
+        let ty = match val {
             Some(res) => *res,
             None => self.type_unspecified,
+        };
+        let type_name = type_get_name(ty);
+        debug!(target: "struct", "get type {} for struct {} {:#?}", type_name, struct_name, struct_id);
+        ty
+    }
+
+    pub fn add_unresolved_mty(&self, mty: mty::Type, mty_name: String, msg: String) {
+        debug!(target: "struct", "unresolved mty type {}: {}", mty_name, msg);
+        self.g_ctx
+            .di_context
+            .unresolved_mty
+            .borrow_mut()
+            .insert((mty, mty_name, msg));
+    }
+    pub fn print_log_unresolved_types(&self) {
+        let binding = self.g_ctx.di_context.unresolved_mty.borrow_mut();
+        for el in binding.clone().into_iter() {
+            let (mty, name, msg) = el;
+            debug!(target: "struct", "Unresolved type {:#?} for struct {} {:#?}", mty, name, msg);
         }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct DIBuilder(Option<DIBuilderCore>);
+#[derive(Clone)]
+pub struct DIBuilder<'up>(Option<DIBuilderCore<'up>>);
 
 macro_rules! to_cstring {
     ($x:expr) => {{
@@ -116,8 +172,13 @@ fn relative_to_absolute(relative_path: &str) -> std::io::Result<String> {
     Ok(absolute_path.to_string_lossy().to_string())
 }
 
-impl DIBuilder {
-    pub fn new(module: &mut Module, source: &str, debug: bool) -> DIBuilder {
+impl<'up> DIBuilder<'up> {
+    pub fn new(
+        g_ctx: &'up GlobalContext,
+        module: &mut Module,
+        source: &str,
+        debug: bool,
+    ) -> DIBuilder<'up> {
         if debug {
             let module_ref_name = module.get_module_id();
             let module_ref = module.as_mut();
@@ -265,6 +326,7 @@ impl DIBuilder {
 
             // store all control fields for future usage
             let builder_core = DIBuilderCore {
+                g_ctx,
                 module_di,
                 builder_ref,
                 builder_file,
@@ -280,14 +342,17 @@ impl DIBuilder {
                 type_u128: create_type(builder_ref, "u128", 128, 0, LLVMDIFlagZero),
                 type_u256: create_type(builder_ref, "u256", 256, 0, LLVMDIFlagZero),
                 type_bool: create_type(builder_ref, "bool", 8, 0, LLVMDIFlagZero),
-                type_address: create_type(builder_ref, "address", 128, 0, LLVMDIFlagZero),
-                type_struct_db: RefCell::new(HashMap::new()),
+                type_address: create_type(builder_ref, "address", 256, 0, LLVMDIFlagZero),
             };
 
             DIBuilder(Some(builder_core))
         } else {
             DIBuilder(None)
         }
+    }
+
+    pub fn global_ctx(&self) -> Option<&GlobalContext> {
+        self.0.as_ref().map(|x| x.g_ctx)
     }
 
     pub fn module_di(&self) -> Option<LLVMModuleRef> {
@@ -322,7 +387,8 @@ impl DIBuilder {
         self.0.as_ref().unwrap()
     }
 
-    pub fn get_type(&self, mty: move_model::ty::Type) -> LLVMMetadataRef {
+    // Get DI type for given mty. 'name' is used for debugging only.
+    pub fn get_type(&self, mty: move_model::ty::Type, name: &String) -> LLVMMetadataRef {
         let core = self.core();
         match mty {
             mty::Type::Primitive(mty::PrimitiveType::Bool) => core.type_bool,
@@ -333,7 +399,9 @@ impl DIBuilder {
             mty::Type::Primitive(mty::PrimitiveType::U128) => core.type_u128,
             mty::Type::Primitive(mty::PrimitiveType::U256) => core.type_u256,
             mty::Type::Primitive(mty::PrimitiveType::Address) => core.type_address,
-            mty::Type::Struct(_mod_id, struct_id, _v) => self.core().get_type_struct(struct_id),
+            mty::Type::Struct(mod_id, struct_id, _v) => {
+                self.core().get_type_struct(mod_id, struct_id, name)
+            }
             _ => core.type_unspecified,
         }
     }
@@ -355,6 +423,12 @@ impl DIBuilder {
         }
     }
 
+    pub fn print_log_unresoled_types(&self) {
+        if let Some(core) = &self.0 {
+            core.print_log_unresolved_types();
+        }
+    }
+
     pub fn struct_fields_info(s: &StructType, data_layout: TargetData, msg: &str) {
         debug!(target: "struct", "{msg}: info {}", s.as_any_type().print_to_str());
         for idx in 0..s.count_struct_element_types() {
@@ -369,20 +443,24 @@ impl DIBuilder {
 
     pub fn create_struct(
         &self,
-        struct_env: &StructEnv,
+        func_ctx: &FunctionContext<'_, '_>,
+        mod_id: &ModuleId, // reserved for future usage and debugging
+        struct_id: &StructId,
         struct_llvm_name: &str,
-        mod_ctx: &ModuleContext<'_, '_>,
         parent: Option<LLVMMetadataRef>,
     ) {
         if let Some(_di_builder_core) = &self.0 {
             let di_builder = self.builder_ref().unwrap();
             let di_builder_file = self.builder_file().unwrap();
-            let mod_env = &struct_env.module_env;
-            let module = mod_ctx.llvm_module;
+            let mod_cx = &func_ctx.module_cx;
+            let mod_env = &mod_cx.env;
+            let struct_env = mod_env.clone().into_struct(*struct_id);
+            let module = mod_cx.llvm_module;
             let data_layout = module.get_module_data_layout();
 
             let name = struct_env.get_full_name_str();
-            debug!(target: "struct", "Creating DI for struct move_name {}, llvm_name {}", name, struct_llvm_name);
+            debug!(target: "struct", "Creating dwarf info for struct move_name {}, llvm_name {} mod_id {:#?} struct_id {:#?}",
+                name, struct_llvm_name, mod_id, struct_id);
 
             // FIXME: not clear whether to use 'name' or 'struct_llvm_name' for DWARF
             let struct_name = struct_llvm_name;
@@ -407,10 +485,13 @@ impl DIBuilder {
                 .unwrap_or(("unknown".to_string(), Location::new(0, 0)));
             debug!(target: "struct", "{struct_name} {}:{}", filename, location.line.0);
 
-            let struct_type = mod_ctx
+            let struct_type = self
+                .global_ctx()
+                .unwrap()
                 .llvm_cx
                 .named_struct_type(struct_name)
                 .expect("no struct type");
+
             let struct_info = struct_type.dunp_to_string();
             debug!(target: "struct", "{struct_name} {}", struct_info);
 
@@ -458,7 +539,19 @@ impl DIBuilder {
                 let fld_loc_str = fld_loc.display(mod_env.env).to_string();
                 debug!(target: "struct", "Field {}: {:#?} {}", &fld_name, &fld_loc, fld_loc_str);
 
-                let fld_type = self.get_type(mv_ty.clone());
+                let fld_type = self.get_type(mv_ty.clone(), &fld_name);
+
+                if fld_type == self.core().type_unspecified {
+                    if let mty::Type::Struct(mod_id, struct_id, _v) = mv_ty.clone() {
+                        debug!(target: "struct", "fld {fld_name} mod_id {:#?} struct_id {:#?}", mod_id, struct_id);
+                        let fld_struct_type = llvm_ty.as_struct_type();
+                        let fld_struct_info = fld_struct_type.dunp_to_string();
+                        debug!(target: "struct", "fld {fld_name} {}", fld_struct_info);
+                        let msg = format!("Unresoled field in struct {}", struct_name);
+                        self.core().add_unresolved_mty(mv_ty.clone(), fld_name.clone(), msg);
+                    }
+
+                }
 
                 let vars = mv_ty.get_vars(); // FIXME: how vars can be used for DWARF?
                 debug!(target: "struct", "vars {:#?}", vars);

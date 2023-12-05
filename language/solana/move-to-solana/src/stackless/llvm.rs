@@ -33,7 +33,10 @@ pub use llvm_sys::{
     LLVMTypeKind::LLVMIntegerTypeKind,
 };
 
-use crate::stackless::dwarf::{from_raw_slice_to_string, DIBuilder};
+use crate::stackless::{
+    dwarf::{from_raw_slice_to_string, DIBuilder},
+    GlobalContext,
+};
 
 pub fn initialize_sbf() {
     unsafe {
@@ -82,8 +85,14 @@ impl Context {
         unsafe { Builder(LLVMCreateBuilderInContext(self.0)) }
     }
 
-    pub fn create_di_builder(&self, module: &mut Module, source: &str, debug: bool) -> DIBuilder {
-        DIBuilder::new(module, source, debug)
+    pub fn create_di_builder<'up>(
+        &'up self,
+        g_ctx: &'up GlobalContext,
+        module: &mut Module,
+        source: &str,
+        debug: bool,
+    ) -> DIBuilder {
+        DIBuilder::new(g_ctx, module, source, debug)
     }
 
     pub fn get_anonymous_struct_type(&self, field_tys: &[Type]) -> Type {
