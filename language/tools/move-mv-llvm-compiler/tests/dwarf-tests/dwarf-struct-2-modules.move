@@ -1,4 +1,21 @@
-module 0x100::M {
+module 0x201::M {
+
+    struct MyStruct_2 has copy, drop {
+        field1_u32:  u32,
+        other_my_struct_from_101: 0x101::M::MyStruct
+    }
+
+    public fun fun_2(): 0x201::M::MyStruct_2 {
+        let my_struct_2 = MyStruct_2 {
+            field1_u32: 15,
+            other_my_struct_from_101: 0x101::M::fun_1()
+        };
+        let my_struct_copy_2 = my_struct_2;
+        my_struct_copy_2
+    }
+
+}
+module 0x101::M {
 
     struct MyStruct has copy, drop {
         field1_u32:  u32,
@@ -14,7 +31,7 @@ module 0x100::M {
 
     struct Combined has copy, drop { field_combined_bool: bool, field_combined_u64_struct: U64Struct}
 
-    public fun fun_1(): 0x100::M::MyStruct {
+    public fun fun_1(): 0x101::M::MyStruct {
         let my_struct = MyStruct {
             field1_u32: 15,
             field2_bool: true,
