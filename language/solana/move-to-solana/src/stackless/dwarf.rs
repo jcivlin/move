@@ -511,9 +511,7 @@ impl<'up> DIBuilder<'up> {
             Self::struct_fields_info(&struct_type, data_layout, "from struct_type");
 
             let mut current_offset = 0;
-            let mut idx = 0;
-            let mut fields: Vec<LLVMMetadataRef> = struct_env.get_fields().map(|f|
-                {
+            let mut fields: Vec<LLVMMetadataRef> = struct_env.get_fields().enumerate().map(|(idx, f)| {
                 let symbol = f.get_name();
                 let fld_name = symbol.display(mod_env.symbol_pool()).to_string();
                 let fld_name_cstr = to_cstring!(fld_name.clone());
@@ -530,12 +528,7 @@ impl<'up> DIBuilder<'up> {
                 debug!(target: "struct", "Struct at {idx} field {fld_name}: store_size_of_type {}, abi_size_of_type {}, abi_alignment_of_type {}, size_of_type_in_bits {}, preferred_alignment_of_type {}, element_offset {}",
                     store_size_of_type, abi_size_of_type, abi_alignment_of_type, size_of_type_in_bits, preferred_alignment_of_type, element_offset);
 
-                let fld_loc = if let Some(named_const) = mod_env.find_named_constant(symbol) {
-                    assert!(named_const.get_name() == symbol);
-                    named_const.get_loc()
-                } else {
-                    mod_env.env.unknown_loc()
-                };
+                let fld_loc = mod_env.find_named_constant(symbol).map_or_else(|| mod_env.env.unknown_loc(), |named_const| named_const.get_loc());
                 let fld_loc_str = fld_loc.display(mod_env.env).to_string();
                 debug!(target: "struct", "Field {}: {:#?} {}", &fld_name, &fld_loc, fld_loc_str);
 
@@ -550,7 +543,6 @@ impl<'up> DIBuilder<'up> {
                         let msg = format!("Unresoled field in struct {}", struct_name);
                         self.core().add_unresolved_mty(mv_ty.clone(), fld_name.clone(), msg);
                     }
-
                 }
 
                 let vars = mv_ty.get_vars(); // FIXME: how vars can be used for DWARF?
@@ -578,10 +570,8 @@ impl<'up> DIBuilder<'up> {
                 debug!(target: "struct", "Struct at {idx} field {fld_name}: created member type {field_name}");
 
                 current_offset += store_size_of_type * 8;
-                idx += 1;
                 fld
             }).collect();
-
             let fields_mut: *mut LLVMMetadataRef = fields.as_mut_ptr();
 
             let struct_meta = unsafe {
