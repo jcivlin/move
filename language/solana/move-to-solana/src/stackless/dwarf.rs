@@ -510,8 +510,7 @@ impl<'up> DIBuilder<'up> {
 
             Self::struct_fields_info(&struct_type, data_layout, "from struct_type");
 
-            let mut current_offset = 0;
-            let mut fields: Vec<LLVMMetadataRef> = struct_env.get_fields().enumerate().map(|(idx, f)| {
+            let mut fields: Vec<LLVMMetadataRef> = struct_env.get_fields().scan((0, 0), |(idx, current_offset), f| {
                 let symbol = f.get_name();
                 let fld_name = symbol.display(mod_env.symbol_pool()).to_string();
                 let fld_name_cstr = to_cstring!(fld_name.clone());
@@ -524,7 +523,7 @@ impl<'up> DIBuilder<'up> {
                 let abi_alignment_of_type = llvm_ty.abi_alignment_of_type(data_layout);
                 let size_of_type_in_bits = llvm_ty.size_of_type_in_bits(data_layout);
                 let preferred_alignment_of_type = llvm_ty.preferred_alignment_of_type(data_layout);
-                let element_offset = struct_type.offset_of_element(data_layout, idx);
+                let element_offset = struct_type.offset_of_element(data_layout, *idx);
                 debug!(target: "struct", "Struct at {idx} field {fld_name}: store_size_of_type {}, abi_size_of_type {}, abi_alignment_of_type {}, size_of_type_in_bits {}, preferred_alignment_of_type {}, element_offset {}",
                     store_size_of_type, abi_size_of_type, abi_alignment_of_type, size_of_type_in_bits, preferred_alignment_of_type, element_offset);
 
@@ -559,7 +558,7 @@ impl<'up> DIBuilder<'up> {
                     location.line.0 + offset as u32,  // FIXME: Loc for fields is the index
                     sz_in_bits,
                     align_in_bits,
-                    current_offset,
+                    *current_offset,
                     0,
                     fld_type,
                 )};
@@ -569,8 +568,9 @@ impl<'up> DIBuilder<'up> {
                 let field_name = unsafe { std::ffi::CStr::from_ptr(name_c_str).to_string_lossy().into_owned() };
                 debug!(target: "struct", "Struct at {idx} field {fld_name}: created member type {field_name}");
 
-                current_offset += store_size_of_type * 8;
-                fld
+                *current_offset += store_size_of_type * 8;
+                *idx = *idx + 1;
+                Some(fld)
             }).collect();
             let fields_mut: *mut LLVMMetadataRef = fields.as_mut_ptr();
 
