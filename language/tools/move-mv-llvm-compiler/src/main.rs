@@ -268,8 +268,6 @@ fn main() -> anyhow::Result<()> {
                 mod_src,
             );
             mod_cx.translate();
-            mod_cx.llvm_di_builder.print_log_unresoled_types();
-            mod_cx.llvm_di_builder.finalize();
 
             if args.diagnostics {
                 println!("Module {} Solana llvm ir", modname);

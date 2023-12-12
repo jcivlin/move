@@ -5,8 +5,13 @@
 use crate::{
     options::Options,
     stackless::{
-        dwarf::DIBuilder, entrypoint::EntrypointGenerator, extensions::*, llvm,
-        llvm::TargetMachine, rttydesc::RttyContext, FunctionContext, RtCall, TargetPlatform,
+        dwarf::{DIBuilder, UnresolvedPrintLogLevel},
+        entrypoint::EntrypointGenerator,
+        extensions::*,
+        llvm,
+        llvm::TargetMachine,
+        rttydesc::RttyContext,
+        FunctionContext, RtCall, TargetPlatform,
     },
 };
 use codespan::Location;
@@ -71,6 +76,9 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
         }
 
         self.llvm_module.verify();
+        self.llvm_di_builder
+            .print_log_unresoled_types(UnresolvedPrintLogLevel::Warning);
+        self.llvm_di_builder.finalize();
     }
 
     /// Generate LLVM IR struct declarations for all Move structures.

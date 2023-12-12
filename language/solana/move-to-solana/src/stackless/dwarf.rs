@@ -30,7 +30,7 @@ use llvm_sys::{
     prelude::*,
 };
 
-use log::debug;
+use log::{debug, error, warn};
 use move_model::model::{ModuleId, StructId};
 use std::{
     cell::RefCell,
@@ -87,6 +87,12 @@ pub struct DIBuilderCore<'up> {
     pub type_address: LLVMMetadataRef,
 }
 
+pub enum UnresolvedPrintLogLevel {
+    Debug,
+    Warning,
+    Error,
+}
+
 fn type_get_name(x: LLVMMetadataRef) -> String {
     let mut length: ::libc::size_t = 0;
     let name_c_str = unsafe { LLVMDITypeGetName(x, &mut length) };
@@ -134,12 +140,27 @@ impl<'up> DIBuilderCore<'up> {
             .borrow_mut()
             .insert((mty, mty_name, msg));
     }
-    pub fn print_log_unresolved_types(&self) {
+
+    pub fn print_log_unresolved_types(&self, lev: UnresolvedPrintLogLevel) {
         let binding = self.g_ctx.di_context.unresolved_mty.borrow_mut();
         for el in binding.clone().into_iter() {
             let (mty, name, msg) = el;
-            debug!(target: "struct", "Unresolved type {:#?} for struct {} {:#?}", mty, name, msg);
+            match lev {
+                UnresolvedPrintLogLevel::Debug => {
+                    debug!(target: "struct", "Unresolved type {:#?} for struct {} {:#?}", mty, name, msg)
+                }
+                UnresolvedPrintLogLevel::Warning => {
+                    warn!(target: "struct", "Unresolved type {:#?} for struct {} {:#?}", mty, name, msg)
+                }
+                _ => {
+                    error!(target: "struct", "Unresolved type {:#?} for struct {} {:#?}", mty, name, msg)
+                }
+            }
         }
+    }
+
+    pub fn has_unresolved_types(&self) -> bool {
+        return self.g_ctx.di_context.unresolved_mty.borrow_mut().capacity() > 0;
     }
 }
 
@@ -424,9 +445,9 @@ impl<'up> DIBuilder<'up> {
         }
     }
 
-    pub fn print_log_unresoled_types(&self) {
+    pub fn print_log_unresoled_types(&self, lev: UnresolvedPrintLogLevel) {
         if let Some(core) = &self.0 {
-            core.print_log_unresolved_types();
+            core.print_log_unresolved_types(lev);
         }
     }
 
