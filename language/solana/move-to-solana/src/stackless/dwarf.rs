@@ -15,6 +15,7 @@
 
 use crate::stackless::{FunctionContext, Module, TargetData};
 use codespan::Location;
+use itertools::enumerate;
 use llvm_sys::{
     core::*,
     debuginfo::{
@@ -510,20 +511,21 @@ impl<'up> DIBuilder<'up> {
 
             Self::struct_fields_info(&struct_type, data_layout, "from struct_type");
 
-            let mut fields: Vec<LLVMMetadataRef> = struct_env.get_fields().scan((0, 0), |(idx, current_offset), f| {
-                let symbol = f.get_name();
+            let struct_fields = struct_env.get_fields();
+            let mut fields: Vec<LLVMMetadataRef> = enumerate(struct_fields).scan(0, |current_offset, (idx, field)| {
+                let symbol = field.get_name();
                 let fld_name = symbol.display(mod_env.symbol_pool()).to_string();
                 let fld_name_cstr = to_cstring!(fld_name.clone());
                 let (field_nm_ptr, field_nm_len) = (fld_name_cstr.as_ptr(), fld_name_cstr.as_bytes().len());
-                let offset = f.get_offset();
-                let mv_ty = f.get_type();
+                let offset = field.get_offset();
+                let mv_ty = field.get_type();
                 let llvm_ty = struct_type.struct_get_type_at_index(offset);
                 let store_size_of_type = llvm_ty.store_size_of_type(data_layout);
                 let abi_size_of_type = llvm_ty.abi_size_of_type(data_layout);
                 let abi_alignment_of_type = llvm_ty.abi_alignment_of_type(data_layout);
                 let size_of_type_in_bits = llvm_ty.size_of_type_in_bits(data_layout);
                 let preferred_alignment_of_type = llvm_ty.preferred_alignment_of_type(data_layout);
-                let element_offset = struct_type.offset_of_element(data_layout, *idx);
+                let element_offset = struct_type.offset_of_element(data_layout, idx);
                 debug!(target: "struct", "Struct at {idx} field {fld_name}: store_size_of_type {}, abi_size_of_type {}, abi_alignment_of_type {}, size_of_type_in_bits {}, preferred_alignment_of_type {}, element_offset {}",
                     store_size_of_type, abi_size_of_type, abi_alignment_of_type, size_of_type_in_bits, preferred_alignment_of_type, element_offset);
 
@@ -569,7 +571,6 @@ impl<'up> DIBuilder<'up> {
                 debug!(target: "struct", "Struct at {idx} field {fld_name}: created member type {field_name}");
 
                 *current_offset += store_size_of_type * 8;
-                *idx = *idx + 1;
                 Some(fld)
             }).collect();
             let fields_mut: *mut LLVMMetadataRef = fields.as_mut_ptr();
