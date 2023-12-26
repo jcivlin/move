@@ -20,8 +20,8 @@ use llvm_sys::{
     core::*,
     debuginfo::{
         LLVMCreateDIBuilder, LLVMDIBuilderCreateBasicType, LLVMDIBuilderCreateCompileUnit,
-        LLVMDIBuilderCreateFile, LLVMDIBuilderCreateFunction, LLVMDIBuilderCreateLexicalBlock, LLVMDIBuilderCreateMemberType,
-        LLVMDIBuilderCreateModule, LLVMDIBuilderCreateNameSpace,
+        LLVMDIBuilderCreateFile, LLVMDIBuilderCreateFunction, LLVMDIBuilderCreateLexicalBlock,
+        LLVMDIBuilderCreateMemberType, LLVMDIBuilderCreateModule, LLVMDIBuilderCreateNameSpace,
         LLVMDIBuilderCreateParameterVariable, LLVMDIBuilderCreatePointerType,
         LLVMDIBuilderCreateStructType, LLVMDIBuilderCreateSubroutineType,
         LLVMDIBuilderCreateUnspecifiedType, LLVMDIBuilderFinalize, LLVMDIFlagObjcClassComplete,
@@ -538,8 +538,6 @@ impl<'up> DIBuilder<'up> {
     pub fn create_function(
         &self,
         func_ctx: &FunctionContext<'_, '_>,
-        // mod_id: &ModuleId, // reserved for future usage and debugging
-        // parameters: Vec<(Parameter, &Local)>,
         _parent: Option<LLVMMetadataRef>,
     ) {
         if let Some(_di_builder_core) = &self.0 {
@@ -651,7 +649,8 @@ impl<'up> DIBuilder<'up> {
                 )
             };
 
-            let lexical_block = unsafe {
+            // reserved for future usage
+            let _lexical_block = unsafe {
                 LLVMDIBuilderCreateLexicalBlock(
                     di_builder,
                     function,
@@ -674,7 +673,6 @@ impl<'up> DIBuilder<'up> {
                     .expect("Cannot convert to &str")
             };
             debug!(target: "functions", "{fn_name}: DI content as &str: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
-
         }
     }
 

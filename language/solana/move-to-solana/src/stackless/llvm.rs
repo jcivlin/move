@@ -15,6 +15,7 @@
 
 use llvm_extra_sys::*;
 use llvm_sys::{core::*, prelude::*, target::*, target_machine::*, LLVMOpcode, LLVMUnnamedAddr};
+use log::debug;
 use move_core_types::u256;
 use num_traits::{PrimInt, ToPrimitive};
 
@@ -400,7 +401,6 @@ impl Module {
     }
 
     pub fn get_module_data_layout(&self) -> TargetData {
-        use log::debug;
         unsafe {
             let dl = LLVMGetModuleDataLayout(self.0);
             debug!(target: "dl", "\n{}", CStr::from_ptr(LLVMCopyStringRepOfTargetData(dl)).to_str().unwrap());
@@ -830,7 +830,6 @@ impl Builder {
         unsafe {
             let mut args = args.iter().map(|a| a.0).collect::<Vec<_>>();
             let func_name = get_name(fnval.0);
-            dbg!(func_name);
             let ret = LLVMBuildCall2(
                 self.0,
                 fnty.0,
@@ -840,19 +839,17 @@ impl Builder {
                 (if dst.is_empty() { "" } else { "retval" }).cstr(),
             );
             let ret_name = get_name(ret);
-            dbg!(ret_name);
+            debug!(target: "functions", "call_store function {} ret {}", &func_name, &ret_name);
 
             if dst.is_empty() {
                 // No return values.
             } else if dst.len() == 1 {
                 // Single return value.
                 let alloca = dst[0].1;
-                dbg!(alloca);
-                let name = alloca.get_name();
-                dbg!(name);
+                let alloca_name = alloca.get_name();
                 let ret = LLVMBuildStore(self.0, ret, dst[0].1 .0);
-                let name = get_name(ret);
-                dbg!(name);
+                let ret_name = get_name(ret);
+                debug!(target: "functions", "call_store alloca_name {} ret {} alloca {:#?} ", &alloca_name, &ret_name, alloca);
             } else {
                 // Multiple return values-- unwrap the struct.
                 let extracts = dst
@@ -860,9 +857,7 @@ impl Builder {
                     .enumerate()
                     .map(|(i, (_ty, dval))| {
                         let _name = dval.get_name();
-                        dbg!(_name);
                         let name = format!("extract_{i}");
-                        dbg!(&name);
                         let ev = LLVMBuildExtractValue(self.0, ret, i as libc::c_uint, name.cstr());
                         (ev, dval)
                     })

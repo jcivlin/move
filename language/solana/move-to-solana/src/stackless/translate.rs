@@ -350,42 +350,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         ll_fn.verify();
 
         self.module_cx.llvm_di_builder.create_function(&self, None);
-
-        /*
-        {
-            let fn_env = &self.env;
-
-            let mod_cx = &self.module_cx;
-            let module = mod_cx.llvm_module;
-            let data_layout = module.get_module_data_layout();
-
-            let param_count = self.env.get_parameter_count();
-            debug!(target: "functions", "function {fn_name} with {param_count} parameters");
-
-            let ll_params = (0..param_count).map(|i| ll_fn.get_param(i));
-            let parameters: Vec<_> = ll_params
-                .clone()
-                .zip(self.locals.iter())
-                .collect();
-
-            // Only for debugging
-            for (idx, (ll_param, local)) in parameters.iter().enumerate() {
-                let mty = &local.mty;
-                let mty_info = mty.display(&fn_env.get_type_display_ctx()).to_string();
-                let llty = local.llty;
-                let llty1 = local.llval.llvm_type();
-                let properties = llty.dump_properties_to_str(data_layout);
-                let properties1 = llty1.dump_properties_to_str(data_layout);
-                let llval = ll_param.0;
-                let llval1 = local.llval.0;
-                let param_name = self.module_cx.llvm_di_builder.get_name(llval);
-                let param_name1 = self.module_cx.llvm_di_builder.get_name(llval1);
-                debug!(target: "functions", "param {idx}: {param_name} {mty_info} {properties}");
-                // use upper, not lower
-                debug!(target: "functions", "param {idx}: {param_name1} {mty_info} {properties1}");
-            }
-        }
-        */
     }
 
     fn translate_instruction(&mut self, instr: &sbc::Bytecode) {
@@ -1196,12 +1160,10 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         let di_builder = &self.module_cx.llvm_di_builder;
         match op {
             Operation::Function(mod_id, fun_id, types) => {
-                dbg!(op);
-                dbg!(dst);
-                dbg!(src);
-                dbg!(types);
                 let types = mty::Type::instantiate_vec(types.to_vec(), self.type_params);
-                dbg!(&types);
+                let fn_name = &self.env.get_name_str();
+                debug!(target: "dwarf", "translate_call function {fn_name} op {:#?} dst {:#?} src {:#?} types {:#?}",
+                    op, dst, src, &types);
                 self.translate_fun_call(*mod_id, *fun_id, &types, dst, src);
             }
             Operation::BorrowLoc => {
@@ -1641,8 +1603,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         let fn_env = global_env.get_function(fn_id);
 
         let mod_cx = self.module_cx;
-        // let mod_env = mod_cx.env;
-        // let symbol_pool = mod_env.symbol_pool();
         let module = mod_cx.llvm_module;
         let data_layout = module.get_module_data_layout();
 
@@ -1650,15 +1610,12 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             .iter()
             .map(|i| {
                 let loc_dst = &self.locals[*i];
-                dbg!(loc_dst);
                 let mty = &loc_dst.mty;
                 let mty_info = mty.display(&fn_env.get_type_display_ctx()).to_string(); //display(symbol_pool);
-                dbg!(mty_info);
                 let llty = loc_dst.llty;
-                llty.dump();
                 let llval = loc_dst.llval;
                 let dst_name = llval.get_name();
-                dbg!(dst_name);
+                debug!(target: "dwarf", "translate_fun_call {dst_name} mty {mty_info} llty {:#?} loc_dst {:#?}", llty, loc_dst);
                 loc_dst
             })
             .collect::<Vec<_>>();
@@ -1666,7 +1623,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             .iter()
             .map(|i| {
                 let loc_src = &self.locals[*i];
-                dbg!(loc_src);
+                debug!(target: "dwarf", "translate_fun_call {:#?}", loc_src);
                 loc_src
             })
             .collect::<Vec<_>>();
@@ -1676,12 +1633,9 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             .lookup_move_fn_decl(mod_id.qualified_inst(fun_id, types.to_vec()));
 
         let fn_name = ll_fn.get_name();
-        dbg!(fn_name);
-        // let fllvm_type = ll_fn.llvm_type();
-        // dbg!(fllvm_type);
         let fllvm_return_type = ll_fn.llvm_return_type();
         let fn_properties = fllvm_return_type.dump_properties_to_str(data_layout);
-        dbg!(fn_properties);
+        debug!(target: "dwarf", "translate_fun_call function name {fn_name} properties {fn_properties}");
 
         let src = src_locals
             .iter()
