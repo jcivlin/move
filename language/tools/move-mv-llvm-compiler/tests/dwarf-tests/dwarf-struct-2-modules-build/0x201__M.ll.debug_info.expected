@@ -3,6 +3,7 @@ source_filename = "/language/tools/move-mv-llvm-compiler/tests/dwarf-tests/dwarf
 
 !llvm.dbg.cu = !{!0}
 !struct.M__MyStruct_2 = !{!2}
+!fun_2 = !{!33}
 
 !0 = distinct !DICompileUnit(language: DW_LANG_Rust, file: !1, producer: "move-mv-llvm-compiler", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, splitDebugInlining: false, sysroot: "/")
 !1 = !DIFile(filename: "dwarf-struct-2-modules.move", directory: "/language/tools/move-mv-llvm-compiler/tests/dwarf-tests")
@@ -37,3 +38,7 @@ source_filename = "/language/tools/move-mv-llvm-compiler/tests/dwarf-tests/dwarf
 !30 = !{!31}
 !31 = !DIDerivedType(tag: DW_TAG_member, name: "field_u64", scope: !29, file: !1, line: 29, baseType: !32, size: 64, align: 64)
 !32 = !DIBasicType(name: "u64", size: 64)
+!33 = distinct !DISubprogram(name: "fun_2", linkageName: "fun_2", scope: !34, file: !1, line: 7, type: !35, spFlags: DISPFlagLocalToUnit | DISPFlagDefinition, unit: !0, retainedNodes: !36)
+!34 = !DINamespace(name: "fun_2", scope: !1)
+!35 = !DISubroutineType(types: !36)
+!36 = !{}
