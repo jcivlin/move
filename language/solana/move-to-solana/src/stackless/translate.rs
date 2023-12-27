@@ -1598,47 +1598,41 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
             }
         }
 
-        let dst_locals = dst.iter().map(|i| &self.locals[*i]).collect::<Vec<_>>();
-        // let global_env = &self.env.module_env.env;
-        // let fn_id = fun_id.qualified(mod_id);
-        // let fn_env = global_env.get_function(fn_id);
+        let global_env = &self.env.module_env.env;
+        let fn_id = fun_id.qualified(mod_id);
+        let fn_env = global_env.get_function(fn_id);
 
-        // let mod_cx = self.module_cx;
-        // let module = mod_cx.llvm_module;
-        // let data_layout = module.get_module_data_layout();
+        let dst_locals = dst
+            .iter()
+            .map(|i| {
+                let loc_dst = &self.locals[*i];
+                let mty = &loc_dst.mty;
+                let mty_info = mty.display(&fn_env.get_type_display_ctx()).to_string();
+                let llty = loc_dst.llty;
+                let llval = loc_dst.llval;
+                let dst_name = llval.get_name();
+                debug!(target: "dwarf", "translate_fun_call {dst_name} mty {mty_info} llty {:#?} loc_dst {:#?}", llty, loc_dst);
+                loc_dst
+            })
+            .collect::<Vec<_>>();
 
-        // let dst_locals = dst
-        //     .iter()
-        //     .map(|i| {
-        //         let loc_dst = &self.locals[*i];
-        //         let mty = &loc_dst.mty;
-        //         let mty_info = mty.display(&fn_env.get_type_display_ctx()).to_string(); //display(symbol_pool);
-        //         let llty = loc_dst.llty;
-        //         let llval = loc_dst.llval;
-        //         let dst_name = llval.get_name();
-        //         debug!(target: "dwarf", "translate_fun_call {dst_name} mty {mty_info} llty {:#?} loc_dst {:#?}", llty, loc_dst);
-        //         loc_dst
-        //     })
-        //     .collect::<Vec<_>>();
-
-        let src_locals = src.iter().map(|i| &self.locals[*i]).collect::<Vec<_>>();
-        // let src_locals = src
-        //     .iter()
-        //     .map(|i| {
-        //         let loc_src = &self.locals[*i];
-        //         debug!(target: "dwarf", "translate_fun_call {:#?}", loc_src);
-        //         loc_src
-        //     })
-        //     .collect::<Vec<_>>();
+        let src_locals = src
+            .iter()
+            .map(|i| {
+                let loc_src = &self.locals[*i];
+                debug!(target: "dwarf", "translate_fun_call {:#?}", loc_src);
+                loc_src
+            })
+            .collect::<Vec<_>>();
 
         let ll_fn = self
             .module_cx
             .lookup_move_fn_decl(mod_id.qualified_inst(fun_id, types.to_vec()));
 
-        // let fn_name = ll_fn.get_name();
-        // let fllvm_return_type = ll_fn.llvm_return_type();
-        // let fn_properties = fllvm_return_type.dump_properties_to_str(data_layout);
-        // debug!(target: "dwarf", "translate_fun_call function name {fn_name} properties {fn_properties}");
+        let fn_name = ll_fn.get_name();
+        let fn_ll_ret_type = ll_fn.llvm_return_type();
+        let info = fn_ll_ret_type.print_to_str();
+        debug!(target: "dwarf", "translate_fun_call function name {fn_name} {info}");
 
         let src = src_locals
             .iter()

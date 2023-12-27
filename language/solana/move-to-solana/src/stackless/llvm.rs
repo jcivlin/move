@@ -515,11 +515,7 @@ impl Builder {
     }
 
     pub fn build_alloca(&self, ty: Type, name: &str) -> Alloca {
-        unsafe {
-            let alloca = Alloca(LLVMBuildAlloca(self.0, ty.0, name.cstr()));
-            alloca.set_name(name);
-            alloca
-        }
+        unsafe { Alloca(LLVMBuildAlloca(self.0, ty.0, name.cstr())) }
     }
 
     pub fn store_param_to_alloca(&self, param: Parameter, alloca: Alloca) {
