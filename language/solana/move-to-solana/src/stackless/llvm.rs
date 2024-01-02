@@ -81,7 +81,7 @@ fn _set_name(value: LLVMValueRef, name: &str) {
 }
 
 #[derive(Debug)]
-pub struct Context(LLVMContextRef);
+pub struct Context(pub LLVMContextRef);
 
 impl Drop for Context {
     fn drop(&mut self) {
@@ -143,6 +143,8 @@ impl Context {
     }
 
     pub fn vector_type(&self, ll_elt_ty: Type, len: usize) -> Type {
+        let info = ll_elt_ty.print_to_str();
+        debug!(target: "vector", "vector_type {info}");
         unsafe { Type(LLVMVectorType(ll_elt_ty.0, len as libc::c_uint)) }
     }
 
@@ -1338,6 +1340,14 @@ impl Global {
         unsafe {
             LLVMDumpValue(self.0);
             eprintln!();
+        }
+    }
+
+    pub fn print_to_str(&self) -> &str {
+        unsafe {
+            CStr::from_ptr(LLVMPrintValueToString(self.0))
+                .to_str()
+                .unwrap()
         }
     }
 }

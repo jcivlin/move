@@ -24,8 +24,9 @@ use llvm_sys::{
         LLVMDIBuilderCreateMemberType, LLVMDIBuilderCreateModule, LLVMDIBuilderCreateNameSpace,
         LLVMDIBuilderCreateParameterVariable, LLVMDIBuilderCreatePointerType,
         LLVMDIBuilderCreateStructType, LLVMDIBuilderCreateSubroutineType,
-        LLVMDIBuilderCreateUnspecifiedType, LLVMDIBuilderFinalize, LLVMDIFlagObjcClassComplete,
-        LLVMDIFlagZero, LLVMDIFlags, LLVMDITypeGetName, LLVMDWARFEmissionKind,
+        LLVMDIBuilderCreateUnspecifiedType, LLVMDIBuilderCreateVectorType, LLVMDIBuilderFinalize,
+        LLVMDIBuilderGetOrCreateSubrange, LLVMDIFlagObjcClassComplete, LLVMDIFlagZero, LLVMDIFlags,
+        LLVMDITypeGetName, LLVMDWARFEmissionKind,
         LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust, LLVMDWARFTypeEncoding,
         LLVMGetMetadataKind, LLVMMetadataKind,
     },
@@ -43,7 +44,7 @@ use std::{
     ptr,
 };
 
-use super::{GlobalContext, StructType};
+use super::{GlobalContext, StructType, Type};
 
 use move_model::ty as mty;
 
@@ -344,7 +345,7 @@ impl<'up> DIBuilder<'up> {
             }
 
             fn create_unspecified_type(builder_ref: LLVMDIBuilderRef) -> LLVMMetadataRef {
-                let name_cstr = to_cstring!("Unspecified type");
+                let name_cstr = to_cstring!("unspecified type");
                 let (name_ptr, name_len) = (name_cstr.as_ptr(), name_cstr.as_bytes().len());
                 unsafe { LLVMDIBuilderCreateUnspecifiedType(builder_ref, name_ptr, name_len) }
             }
@@ -535,6 +536,56 @@ impl<'up> DIBuilder<'up> {
         }
     }
 
+    pub fn create_vector(
+        &self,
+        mty: mty::Type,
+        llvec: &Type,
+        llmod: &Module,
+        _parent: Option<LLVMMetadataRef>,
+    ) {
+        if let Some(_di_builder_core) = &self.0 {
+            let di_builder = self.builder_ref().unwrap();
+            let llvec_info = llvec.print_to_str();
+            debug!(target: "vector", "create_vector {llvec_info}");
+            let vec_di_type = self.get_type(mty, &"unnamed-vector".to_string());
+            let mut vec_name_length: ::libc::size_t = 0;
+            let vec_name_c_str = unsafe { LLVMDITypeGetName(vec_di_type, &mut vec_name_length) };
+            let vec_name = unsafe {
+                std::ffi::CStr::from_ptr(vec_name_c_str)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let dl = llmod.get_module_data_layout();
+            let n_elements = [llvec].len();
+            unsafe {
+                let size_subrange =
+                    LLVMDIBuilderGetOrCreateSubrange(di_builder, 0, n_elements as i64);
+                let size_in_bits = llvec.size_of_type_in_bits(dl);
+                let align_in_bits = llvec.abi_alignment_of_type(dl);
+                let vector_di_type = LLVMDIBuilderCreateVectorType(
+                    di_builder,
+                    size_in_bits,
+                    align_in_bits,
+                    vec_di_type,
+                    vec![size_subrange].as_mut_ptr(),
+                    n_elements as u32,
+                );
+
+                let module_di = &self.module_di().unwrap();
+                let module_ctx = LLVMGetModuleContext(*module_di);
+                let meta_as_value = LLVMMetadataAsValue(module_ctx, vector_di_type);
+                LLVMAddNamedMetadataOperand(*module_di, vec_name_c_str, meta_as_value);
+
+                let out = LLVMPrintModuleToString(*module_di);
+                let c_string: *mut i8 = out;
+                let c_str = CStr::from_ptr(c_string)
+                    .to_str()
+                    .expect("Cannot convert to &str");
+                debug!(target: "vectors", "vector {vec_name}: DI content: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
+            };
+        }
+    }
+
     pub fn create_function(
         &self,
         func_ctx: &FunctionContext<'_, '_>,
@@ -672,7 +723,7 @@ impl<'up> DIBuilder<'up> {
                     .to_str()
                     .expect("Cannot convert to &str")
             };
-            debug!(target: "functions", "{fn_name}: DI content as &str: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
+            debug!(target: "functions", "function {fn_name}: DI content: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
         }
     }
 
@@ -901,7 +952,7 @@ impl<'up> DIBuilder<'up> {
                     .to_str()
                     .expect("Cannot convert to &str")
             };
-            debug!(target: "struct", "{struct_name}: DI content as &str: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
+            debug!(target: "struct", "struct {struct_name}: DI content: starting at next line and until line starting with !!!\n{}\n!!!\n", c_str);
         }
     }
 
