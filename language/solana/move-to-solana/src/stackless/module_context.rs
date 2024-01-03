@@ -711,21 +711,7 @@ impl<'mm: 'up, 'up> ModuleContext<'mm, 'up> {
                     unreachable!("")
                 }
             }
-            //Type::Vector(_) => Some(self.rtty_cx.get_llvm_type_for_move_native_vector()),
             Type::Vector(_) => Some(self.rtty_cx.get_llvm_type_for_move_vector(self, mty)),
-            // Type::Vector(x) => {
-            //     if tyvec.len() > 0 {
-            //         Some(self.rtty_cx.get_llvm_type_for_move_vector(&self, mty))
-            //     } else {
-            //     let ty = x;
-            //     // let llty: llvm::Type = self.to_llvm_type(&tyvec[0], &[]).unwrap();
-            //     // let el_ty = tyvec.get(0);
-            //     dbg!(&ty);
-            //     let llty: llvm::Type = self.to_llvm_type(&ty, tyvec).unwrap();
-            //     let z = Some(self.rtty_cx.get_llvm_type_for_move_vector2(&self, llty, mty));
-            //     z
-            //     }
-            // },
             Type::Tuple(_) => {
                 todo!("{mty:?}")
             }
