@@ -627,7 +627,7 @@ impl<'up> DIBuilder<'up> {
                 let properties = llty.dump_properties_to_str(data_layout);
                 let properties1 = llty1.dump_properties_to_str(data_layout);
                 let llval = ll_param.0;
-                let llval1 = local.llval().0;
+                let llval1 = local.llval().get0();
                 let param_name = func_ctx.module_cx.llvm_di_builder.get_name(llval);
                 let param_name1 = func_ctx.module_cx.llvm_di_builder.get_name(llval1);
                 debug!(target: "functions", "param {idx}: {param_name} {mty_info} {properties}");

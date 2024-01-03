@@ -1230,7 +1230,7 @@ impl BasicBlock {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Alloca(pub LLVMValueRef);
+pub struct Alloca(LLVMValueRef);
 
 impl Alloca {
     pub fn as_any_value(&self) -> AnyValue {
