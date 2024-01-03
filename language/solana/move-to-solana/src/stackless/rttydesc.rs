@@ -79,14 +79,18 @@ impl<'mm, 'up> RttyContext<'mm, 'up> {
         mty: &mty::Type,
     ) -> llvm::Type {
         let llcx = self.get_llvm_cx();
-        let vecty = llcx.vector_type(llcx.ptr_type(), [llcx].len());
-        let info = vecty.print_to_str();
+        let ty = llcx.get_anonymous_struct_type(&[
+            llcx.ptr_type(),
+            llcx.int_type(64),
+            llcx.int_type(64),
+        ]);
+        let info = ty.print_to_str();
         debug!(target: "rtty", "get_llvm_type_for_move_vector: {info}");
         let llmod = self.get_llvm_module();
         m_ctx
             .llvm_di_builder
-            .create_vector(mty.clone(), &vecty, llmod, None);
-        vecty
+            .create_vector(mty.clone(), &ty, llmod, None);
+        ty
     }
 
     pub fn get_llvm_type_for_slice(&self) -> llvm::Type {
