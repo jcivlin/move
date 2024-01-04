@@ -802,7 +802,7 @@ impl<'up> DIBuilder<'up> {
                 .named_struct_type(struct_name)
                 .expect("no struct type");
 
-            let struct_info = struct_type.dunp_to_string();
+            let struct_info = struct_type.dump_to_string();
             debug!(target: "struct", "{struct_name} {}", struct_info);
 
             let struct_type_in_bits = struct_type.as_any_type().size_of_type_in_bits(data_layout);
@@ -848,7 +848,7 @@ impl<'up> DIBuilder<'up> {
                     if let mty::Type::Struct(mod_id, struct_id, _v) = mv_ty.clone() {
                         debug!(target: "struct", "fld {fld_name} mod_id {:#?} struct_id {:#?}", mod_id, struct_id);
                         let fld_struct_type = llvm_ty.as_struct_type();
-                        let fld_struct_info = fld_struct_type.dunp_to_string();
+                        let fld_struct_info = fld_struct_type.dump_to_string();
                         debug!(target: "struct", "fld {fld_name} {}", fld_struct_info);
                         let msg = format!("Unresoled field in struct {}", struct_name);
                         self.core().add_unresolved_mty(mv_ty.clone(), fld_name.clone(), msg);

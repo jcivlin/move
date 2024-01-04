@@ -1127,7 +1127,7 @@ impl StructType {
         }
     }
 
-    pub fn dunp_to_string(&self) -> &str {
+    pub fn dump_to_string(&self) -> &str {
         let c_char_ptr = unsafe { LLVMPrintTypeToString(self.0) };
         let c_str = unsafe { CStr::from_ptr(c_char_ptr) };
         let str_slice = c_str.to_str().expect("Failed to convert CStr to str");
