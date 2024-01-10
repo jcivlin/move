@@ -77,6 +77,7 @@ impl<'mm, 'up> RttyContext<'mm, 'up> {
         &self,
         m_ctx: &ModuleContext,
         mty: &mty::Type,
+        tyvec: &[mty::Type],
     ) -> llvm::Type {
         let llcx = self.get_llvm_cx();
         let ty = llcx.get_anonymous_struct_type(&[
@@ -87,9 +88,14 @@ impl<'mm, 'up> RttyContext<'mm, 'up> {
         let info = ty.print_to_str();
         debug!(target: "rtty", "get_llvm_type_for_move_vector: {info}");
         let llmod = self.get_llvm_module();
+        let ty_display_ctx = &self.g_env.get_type_display_ctx();
+        for tyv in tyvec.iter() {
+            let tyv_display = &tyv.display(ty_display_ctx);
+            debug!(target: "rtty", "get_llvm_type_for_move_vector:  {tyv_display}");
+        }
         m_ctx
             .llvm_di_builder
-            .create_vector(mty.clone(), &ty, llmod, None);
+            .create_vector(mty.clone(), tyvec, &ty, llmod, None);
         ty
     }
 
