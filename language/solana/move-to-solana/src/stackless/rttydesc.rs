@@ -92,9 +92,7 @@ impl<'mm, 'up> RttyContext<'mm, 'up> {
             let tyv_display = &mty.display(ty_display_ctx);
             debug!(target: "rtty", "get_llvm_type_for_move_vector:  {tyv_display}");
         }
-        m_ctx
-            .llvm_di_builder
-            .create_vector(mvec, &ty, llmod, None);
+        m_ctx.llvm_di_builder.create_vector(mvec, &ty, llmod, None);
         ty
     }
 

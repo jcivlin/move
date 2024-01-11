@@ -543,7 +543,9 @@ impl<'up> DIBuilder<'up> {
         llmod: &Module,
         _parent: Option<LLVMMetadataRef>,
     ) {
-        if mvec.is_empty() { return };
+        if mvec.is_empty() {
+            return;
+        };
 
         if let Some(_di_builder_core) = &self.0 {
             let di_builder = self.builder_ref().unwrap();
