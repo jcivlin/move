@@ -538,21 +538,25 @@ impl<'up> DIBuilder<'up> {
 
     pub fn create_vector(
         &self,
-        mty: mty::Type,
-        tyvec: &[mty::Type],
+        mvec: &[mty::Type],
         llvec: &Type,
         llmod: &Module,
         _parent: Option<LLVMMetadataRef>,
     ) {
+        if mvec.is_empty() { return };
+
         if let Some(_di_builder_core) = &self.0 {
             let di_builder = self.builder_ref().unwrap();
+
+            let mty = mvec.get(0).unwrap(); // exists since !mvec.is_empty()
+            let vec_di_type = self.get_type(mty.clone(), &"unnamed-vector".to_string());
+            if vec_di_type == self.core().type_unspecified {
+                return; // proceed only when type is known
+            }
+
             let llvec_info = llvec.print_to_str();
             debug!(target: "vector", "create_vector {llvec_info}");
-            let mty_0 = match tyvec.get(0) {
-                Some(first) => first,
-                None => &mty,
-            };
-            let vec_di_type = self.get_type(mty_0.clone(), &"unnamed-vector".to_string());
+
             let mut vec_name_length: ::libc::size_t = 0;
             let vec_name_c_str = unsafe { LLVMDITypeGetName(vec_di_type, &mut vec_name_length) };
             let vec_name = unsafe {
