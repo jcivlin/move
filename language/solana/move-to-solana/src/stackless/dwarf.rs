@@ -812,7 +812,6 @@ impl<'up> DIBuilder<'up> {
                 module_di == module_di_test,
                 "Module context should be the same"
             );
-            dbg!(module_di);
             unsafe {
                 LLVMDumpModule(*module_di);
             }

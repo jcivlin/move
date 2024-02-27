@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Usage
-# ./copy_actual_to_expected.sh /path/to/directory
+# Copyright (c) The Diem Core Contributors
+# Copyright (c) The Move Contributors
+# SPDX-License-Identifier: Apache-2.0
 
 # Check if the 'dir' parameter is provided
 if [ -z "$1" ]; then

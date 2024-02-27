@@ -355,9 +355,7 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         self.module_cx
             .llvm_di_builder
             .finalize_function(&self, di_func);
-        dbg!(&fn_name, "before verify function");
         ll_fn.verify(self.module_cx);
-        dbg!(&fn_name, "Verify function eof");
     }
 
     fn translate_instruction(&mut self, instr: &sbc::Bytecode) {
