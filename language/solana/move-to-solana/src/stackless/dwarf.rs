@@ -486,7 +486,7 @@ impl<'up> DIBuilder<'up> {
             let module_ref_name = module.get_module_id();
 
             // do not create a new module, rather use existing compilation module
-            let module_name = module_ref_name; //  + ".dbg_info";
+            let module_name = module_ref_name;
             let cstr = to_cstring!(module_name.as_str());
             let (mut _mod_nm_ptr, mut mod_nm_len) = (cstr.as_ptr(), cstr.as_bytes().len());
 
@@ -919,21 +919,29 @@ impl<'up> DIBuilder<'up> {
                 let mty = &local.mty();
                 let mty_info = mty.display(&fn_env.get_type_display_ctx()).to_string();
                 let llty = local.llty();
-                let llty1 = local.llval().llvm_type();
+                let llty_alter = local.llval().llvm_type(); // currently names with _alter are only for debugging
                 let properties = llty.dump_properties_to_str(data_layout);
-                let properties1 = llty1.dump_properties_to_str(data_layout);
+                let properties_alter = llty_alter.dump_properties_to_str(data_layout);
                 let llval = ll_param.0;
-                let llval1 = local.llval().get0();
+                let llval_alter = local.llval().get0();
                 let param_name = module_cx.llvm_di_builder.get_name(llval);
-                let param_name1 = module_cx.llvm_di_builder.get_name(llval1);
+                let param_name_alter = module_cx.llvm_di_builder.get_name(llval_alter);
                 debug!(target: "functions", "param {idx}: {param_name} {mty_info} {properties}");
                 // use upper, not lower
-                debug!(target: "functions", "param {idx}: {param_name1} {mty_info} {properties1}");
+                debug!(target: "functions", "param {idx}: {param_name_alter} {mty_info} {properties_alter}");
             }
 
             let name_cstr = to_cstring!(fn_name.clone());
             let (fn_nm_ptr, fn_nm_len) = (name_cstr.as_ptr(), name_cstr.as_bytes().len());
 
+            // NOTE. Explanation of the numbers used below.
+            // Despite some existing freedom in choosing parameter values ​​(for example, the 'scope' in different places
+            // may be either file, or function, or logical scope, or basic block) the final result may vary and even be illegal,
+            // so the module verification may fail.
+            // When debigging and experimenting with parameters on a step, it is convenient to have a reference to the step,
+            // and the step number is used as that reference.
+            // Notice that the actual order of LLVM function calls below may be changed as long as the parameter dependency is preserved.
+            //
             // -5.
             let name_space = unsafe {
                 LLVMDIBuilderCreateNameSpace(di_builder, di_builder_file, fn_nm_ptr, fn_nm_len, 0)
@@ -944,7 +952,6 @@ impl<'up> DIBuilder<'up> {
                 .scan(0, |_state, (_idx, (ll_param, local))| {
                     let llval = ll_param.0;
                     let param_name = module_cx.llvm_di_builder.get_name(llval);
-                    let _name_cstr = to_cstring!(param_name.clone());
                     let mty = local.mty();
                     let fn_param = self.get_type(mty.clone(), &param_name);
 
@@ -971,7 +978,7 @@ impl<'up> DIBuilder<'up> {
             let function = unsafe {
                 LLVMDIBuilderCreateFunction(
                     di_builder,
-                    di_builder_file, // compiled_unit, // name_space, // di_builder_file,
+                    di_builder_file,
                     fn_nm_ptr,
                     fn_nm_len,
                     fn_nm_ptr,
@@ -1043,8 +1050,7 @@ impl<'up> DIBuilder<'up> {
             let meta_as_value = unsafe { LLVMMetadataAsValue(module_ctx, debug_location) };
             unsafe { LLVMAddNamedMetadataOperand(*module_di, fn_nm_ptr, meta_as_value) };
 
-            // Note: do NOT call verify (function below) since building process is not done, call verify function after function_finalize!
-            // unsafe { LLVMVerifyModule(*module_di, LLVMVerifierFailureAction::LLVMPrintMessageAction, ptr::null_mut()); };
+            // Note: do NOT call module verify at this point, since building function is not done, call verify after function_finalize.
 
             return Some(function);
         }
@@ -1091,7 +1097,7 @@ impl<'up> DIBuilder<'up> {
         let cstr = to_cstring!(producer);
         let (producer_ptr, producer_len) = (cstr.as_ptr(), cstr.as_bytes().len());
 
-        let flags = "".to_string();
+        let flags = String::new();
         let cstr = to_cstring!(flags);
         let (flags_ptr, flags_len) = (cstr.as_ptr(), cstr.as_bytes().len());
 
