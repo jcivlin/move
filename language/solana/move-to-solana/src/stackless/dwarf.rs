@@ -717,10 +717,10 @@ impl<'up> DIBuilder<'up> {
             if Self::is_named_type(metadata) {
                 type_get_name(metadata)
             } else {
-                "unknown name".to_string()
+                "unknown_name".to_string()
             }
         } else {
-            "unknown name".to_string()
+            "unknown_name".to_string()
         }
     }
 
@@ -732,7 +732,7 @@ impl<'up> DIBuilder<'up> {
             let name_cstr = unsafe { std::ffi::CStr::from_ptr(name_ptr) };
             name_cstr.to_string_lossy().into_owned()
         } else {
-            "unknown name".to_string()
+            "unknown_name".to_string()
         }
     }
 
@@ -744,7 +744,7 @@ impl<'up> DIBuilder<'up> {
             let name_cstr = unsafe { std::ffi::CStr::from_ptr(name_ptr) };
             name_cstr.to_string_lossy().into_owned()
         } else {
-            "unknown name".to_string()
+            "unknown_name".to_string()
         }
     }
 
