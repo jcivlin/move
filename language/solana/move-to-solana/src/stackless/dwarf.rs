@@ -52,10 +52,7 @@ macro_rules! to_cstring {
     ($x:expr) => {{
         let cstr = match std::ffi::CString::new($x) {
             Ok(cstr) => cstr,
-            Err(_) => std::ffi::CString::new("unknown").expect(
-                "Failed to ction
-             CString",
-            ),
+            Err(_) => std::ffi::CString::new("unknown").expect("Failed to create CString"),
         };
         cstr
     }};
@@ -1000,7 +997,6 @@ impl<'up> DIBuilder<'up> {
             };
 
             // -1.
-            // reserved for future usage
             let lexical_block = unsafe {
                 LLVMDIBuilderCreateLexicalBlock(
                     di_builder,
