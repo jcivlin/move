@@ -1663,9 +1663,6 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
         self.module_cx
             .llvm_builder
             .load_call_store(ll_fn, &src, &dst, instr_dbg);
-
-        // This is just to show the format of instr_dbg.function() that will be called. Remove it later.
-        //instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
     }
 
     // Optional vec_mty is only used for a vector literal (i.e., Constant<Vector(Vec<Constant>))
