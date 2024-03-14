@@ -384,7 +384,8 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                         instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Reference(_, _) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Struct(_, _, _) => {
                         // A move renders the source location inaccessible, but the storage is
@@ -401,9 +402,11 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                         self.locals[*dst] = self.locals[*src].clone();
                     }
                     mty::Type::Vector(_) => {
-                        self.module_cx
+                        let (load, store) = self
+                            .module_cx
                             .llvm_builder
                             .load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     _ => todo!("{mty:?}"),
                 }
@@ -423,13 +426,16 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                         | mty::PrimitiveType::U128
                         | mty::PrimitiveType::U256,
                     ) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Struct(_, _, _) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Primitive(mty::PrimitiveType::Address) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Vector(elt_mty) => {
                         self.module_cx.emit_rtcall_with_retval(RtCall::VecCopy(
@@ -440,10 +446,14 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                     }
                     mty::Type::Reference(_, referent) => match **referent {
                         mty::Type::Struct(_, _, _) => {
-                            builder.load_store(llty, src_llval, dst_llval);
+                            let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                            instr_dbg
+                                .create_load_store(load, store, mty, llty, src_llval, dst_llval);
                         }
                         _ => {
-                            builder.load_store(llty, src_llval, dst_llval);
+                            let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                            instr_dbg
+                                .create_load_store(load, store, mty, llty, src_llval, dst_llval);
                         }
                     },
                     _ => todo!("{mty:?}"),
@@ -466,18 +476,23 @@ impl<'mm, 'up> FunctionContext<'mm, 'up> {
                         | mty::PrimitiveType::Address
                         | mty::PrimitiveType::Signer,
                     ) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Reference(_, _) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Struct(_, _, _) => {
-                        builder.load_store(llty, src_llval, dst_llval);
+                        let (load, store) = builder.load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     mty::Type::Vector(_) => {
-                        self.module_cx
+                        let (load, store) = self
+                            .module_cx
                             .llvm_builder
                             .load_store(llty, src_llval, dst_llval);
+                        instr_dbg.create_load_store(load, store, mty, llty, src_llval, dst_llval);
                     }
                     _ => todo!("{mty:#?}"),
                 }

@@ -41,10 +41,10 @@ entry:
 
 declare %struct.M__MyStruct @"0000000000000101_M_fun_1_AcLtMspYikxikv"(i8, i1)
 
-; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: nocallback nofree nosync nounwind readnone speculatable willreturn
 declare void @llvm.dbg.declare(metadata, metadata, metadata) #0
 
-attributes #0 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
 
 !llvm.dbg.cu = !{!0}
 !fun_2 = !{!2, !7, !8, !9}

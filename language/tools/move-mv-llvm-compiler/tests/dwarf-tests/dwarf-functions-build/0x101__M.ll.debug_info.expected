@@ -64,10 +64,10 @@ entry:
   ret %struct.M__MyStruct %retval
 }
 
-; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: nocallback nofree nosync nounwind readnone speculatable willreturn
 declare void @llvm.dbg.declare(metadata, metadata, metadata) #0
 
-attributes #0 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
 
 !llvm.dbg.cu = !{!0}
 !fun_1 = !{!2, !8, !9, !10}

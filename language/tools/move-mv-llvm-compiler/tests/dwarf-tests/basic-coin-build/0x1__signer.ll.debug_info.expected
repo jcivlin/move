@@ -12,8 +12,10 @@ entry:
   %local_2 = alloca ptr, align 8
   %local_3 = alloca [32 x i8], align 1
   store ptr %s, ptr %local_0, align 8
-  %load_store_tmp = load ptr, ptr %local_0, align 8
-  store ptr %load_store_tmp, ptr %local_1, align 8
+  %load_store_tmp = load ptr, ptr %local_0, align 8, !dbg !10
+  store ptr %load_store_tmp, ptr %local_1, align 8, !dbg !10
+  call void @llvm.dbg.declare(metadata ptr %local_0, metadata !11, metadata !DIExpression()), !dbg !10
+  call void @llvm.dbg.declare(metadata ptr %local_1, metadata !13, metadata !DIExpression()), !dbg !10
   %loaded_alloca = load ptr, ptr %local_1, align 8
   %retval = call ptr @move_native_signer_borrow_address(ptr %loaded_alloca)
   store ptr %retval, ptr %local_2, align 8
@@ -25,6 +27,11 @@ entry:
 }
 
 declare ptr @move_native_signer_borrow_address(ptr)
+
+; Function Attrs: nocallback nofree nosync nounwind readnone speculatable willreturn
+declare void @llvm.dbg.declare(metadata, metadata, metadata) #0
+
+attributes #0 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
 
 !llvm.dbg.cu = !{!0}
 !address_of = !{!2, !7, !8, !9}
@@ -39,3 +46,8 @@ declare ptr @move_native_signer_borrow_address(ptr)
 !7 = distinct !DILexicalBlock(scope: !2, file: !1, line: 10)
 !8 = !DINamespace(name: "address_of", scope: !1)
 !9 = !DILocation(line: 11, column: 4, scope: !7)
+!10 = !DILocation(line: 13, column: 25, scope: !2)
+!11 = !DILocalVariable(name: "load_store_./../../../../../move-stdlib/sources/signer.move_13_s", scope: !12, file: !1, line: 13, type: !5)
+!12 = distinct !DILexicalBlock(scope: !2, file: !1, line: 13, column: 25)
+!13 = !DILocalVariable(name: "load_store_./../../../../../move-stdlib/sources/signer.move_13_s", scope: !14, file: !1, line: 13, type: !5)
+!14 = distinct !DILexicalBlock(scope: !2, file: !1, line: 13, column: 25)
