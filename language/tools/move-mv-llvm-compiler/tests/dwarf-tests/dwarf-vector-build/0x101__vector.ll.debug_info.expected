@@ -206,7 +206,7 @@ entry:
   ret { ptr, i64, i64 } %retval2
 }
 
-; Function Attrs: nocallback nofree nosync nounwind readnone speculatable willreturn
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare void @llvm.dbg.declare(metadata, metadata, metadata) #0
 
 declare i1 @move_rt_struct_cmp_eq(ptr nonnull readonly dereferenceable(32), ptr nonnull readonly, ptr nonnull readonly)
@@ -214,7 +214,7 @@ declare i1 @move_rt_struct_cmp_eq(ptr nonnull readonly dereferenceable(32), ptr 
 ; Function Attrs: cold noreturn
 declare void @move_rt_abort(i64) #1
 
-attributes #0 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
+attributes #0 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #1 = { cold noreturn }
 
 !llvm.dbg.cu = !{!0}

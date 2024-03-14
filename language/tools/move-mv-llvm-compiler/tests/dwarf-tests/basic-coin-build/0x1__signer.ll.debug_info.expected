@@ -28,10 +28,10 @@ entry:
 
 declare ptr @move_native_signer_borrow_address(ptr)
 
-; Function Attrs: nocallback nofree nosync nounwind readnone speculatable willreturn
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare void @llvm.dbg.declare(metadata, metadata, metadata) #0
 
-attributes #0 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
+attributes #0 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
 !llvm.dbg.cu = !{!0}
 !address_of = !{!2, !7, !8, !9}
