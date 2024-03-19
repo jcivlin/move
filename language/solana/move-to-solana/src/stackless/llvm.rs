@@ -741,7 +741,7 @@ impl Builder {
         }
     }
 
-    pub fn load_return(&self, ty: Type, val: Alloca)  -> (*mut LLVMValue, *mut LLVMValue) {
+    pub fn load_return(&self, ty: Type, val: Alloca) -> (*mut LLVMValue, *mut LLVMValue) {
         unsafe {
             let tmp_reg = LLVMBuildLoad2(self.0, ty.0, val.0, "retval".cstr());
             let ret_val = LLVMBuildRet(self.0, tmp_reg);
